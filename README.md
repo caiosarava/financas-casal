@@ -102,6 +102,7 @@ npx vercel dev               # http://localhost:3000
 ## Observações
 - **Tamanho dos arquivos:** PDF até ~3 MB (limite de requisição da Vercel); planilhas até ~400 mil caracteres. Para arquivos maiores, exporte um período menor.
 - **XLS/XLSX:** o leitor (SheetJS 0.20.3) é carregado sob demanda de `cdn.sheetjs.com` na primeira importação de planilha. CSV é lido sem bibliotecas (detecta `;`/`,` e acentuação UTF-8 ou Windows-1252).
-- **Duplicados:** na importação, gastos com mesma data e valor já registrados por você vêm desmarcados e sinalizados.
+- **Faturas de cartão → mês de vencimento:** quando o arquivo é uma fatura, todos os lançamentos são gravados na data de vencimento (detectada pela IA, pelo texto do PDF ou pelo nome do arquivo, ex.: `Nubank_2026-11-10.csv`; dá para ajustar na revisão). A data da compra fica na descrição, ex.: "Drogasil (compra 05/10)". Extratos bancários continuam com a data de cada movimentação.
+- **Duplicados:** na importação, lançamentos já registrados por você (mesmo valor e data) vêm desmarcados e sinalizados. No modo fatura, lançamentos importados antes na data da compra são **movidos** para o vencimento em vez de duplicados.
 - **Categorias:** gastos e entradas definidas em `lib/categorias.js` e `public/app.js` (mantenha as listas iguais).
 - **Privacidade:** o servidor filtra os gastos "só eu" antes de enviar ao app; a planilha em si contém todos os registros.

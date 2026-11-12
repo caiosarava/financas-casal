@@ -617,15 +617,27 @@ async function importarPdf(file) {
     return;
   }
 
-  // Marca possíveis duplicados (mesma data, valor e natureza já registrados por mim)
-  const meses = [...new Set(resultado.transacoes.map((t) => t.data.slice(0, 7)))];
-  const dados = await Promise.all(meses.map((m) => dadosDoMes(m, true).catch(() => ({ gastos: [], entradas: [] }))));
-  const existentes = dados.flatMap((d) => [...d.gastos, ...d.entradas]).filter((g) => g.meu);
-  state.importados = resultado.transacoes.map((t) => {
-    const natureza = t.natureza === 'entrada' ? 'entrada' : 'saida';
-    const dup = existentes.some((g) => g.natureza === natureza && g.data === t.data && Math.abs(g.valor - t.valor) < 0.01);
-    return { ...t, natureza, dup, sel: !dup, origem: pdf ? 'pdf' : 'planilha' };
-  });
+  state.importados = resultado.transacoes.map((t) => ({
+    ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: pdf ? 'pdf' : 'planilha',
+  }));
+
+  // Fatura de cartão: por padrão tudo vai para o mês de vencimento
+  const fatura = resultado.tipoDocumento === 'fatura_cartao';
+  let venc = resultado.vencimento || '';
+  let palpite = false;
+  if (fatura && !venc) {
+    const m = file.name.match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+    if (m) venc = `${m[1]}-${m[2]}-${m[3]}`;
+    else if (state.importados.length) {
+      venc = `${deslocarMes(state.importados.map((t) => t.data).sort().pop().slice(0, 7), 1)}-10`;
+      palpite = true;
+    }
+  }
+  $('#import-usar-venc').checked = fatura;
+  $('#import-venc').value = venc;
+  $('#import-venc-aviso').textContent = palpite ? '⚠️ Vencimento estimado — confira a data da sua fatura.' : '';
+  state.cache = {};
+  await avaliarImportados();
   carregando(false);
 
   if (!state.importados.length) {
@@ -649,11 +661,47 @@ function renderImportados() {
         <option value="entrada" ${t.natureza === 'entrada' ? 'selected' : ''}>💰 Entrada</option>
       </select>
       <select data-k="tipo" aria-label="Tipo">${opcoes(catsDe(t.natureza), t.tipo)}</select>
-      ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe lançamento com mesma data e valor)</small>' : ''}
+      ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe lançamento com mesmo valor)</small>' : ''}
+      ${t.mover ? `<small class="sub desc" style="margin:0">↪️ Já importado em ${t.mover.data.split('-').reverse().join('/')} — será movido para o vencimento</small>` : ''}
     </div></li>`).join('');
   $('#import-titulo').textContent = `Revise os lançamentos (${state.importados.length})`;
   atualizarResumoImport();
   $('#import-revisao').classList.remove('hidden');
+}
+
+function faturaAtiva() {
+  const venc = $('#import-venc').value;
+  $('#import-venc-campo').classList.toggle('hidden', !$('#import-usar-venc').checked);
+  return { ativo: $('#import-usar-venc').checked && /^\d{4}-\d{2}-\d{2}$/.test(venc), venc };
+}
+
+const dataCurta = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7);
+const descricaoFatura = (t) => (/\(compra \d{2}\/\d{2}\)/.test(t.descricao) ? t.descricao : `${t.descricao} (compra ${dataCurta(t.data)})`);
+
+// Compara com o que já está salvo: marca duplicados e, no modo fatura, lançamentos já
+// importados na data da compra (que serão movidos para o vencimento em vez de duplicados).
+async function avaliarImportados() {
+  const f = faturaAtiva();
+  const meses = new Set(state.importados.map((t) => t.data.slice(0, 7)));
+  if (f.ativo) meses.add(f.venc.slice(0, 7));
+  const dados = await Promise.all([...meses].map((m) => dadosDoMes(m).catch(() => ({ gastos: [], entradas: [] }))));
+  const existentes = dados.flatMap((d) => [...d.gastos, ...d.entradas]).filter((g) => g.meu);
+  const usados = new Set();
+  const achar = (t, cond) => {
+    const g = existentes.find((x) => !usados.has(x.natureza + x.id) && x.natureza === t.natureza && Math.abs(x.valor - t.valor) < 0.01 && cond(x));
+    if (g) usados.add(g.natureza + g.id);
+    return g;
+  };
+  for (const t of state.importados) {
+    t.dup = false;
+    t.mover = null;
+    if (f.ativo) {
+      const prefixo = t.descricao.slice(0, 12);
+      if (achar(t, (x) => x.data === f.venc && (x.descricao || '').startsWith(prefixo))) t.dup = true;
+      else t.mover = achar(t, (x) => x.data === t.data && x.origem !== 'manual') || null;
+    } else if (achar(t, (x) => x.data === t.data)) t.dup = true;
+    t.sel = !t.dup;
+  }
 }
 
 function atualizarResumoImport() {
@@ -666,18 +714,28 @@ async function salvarImportados() {
   const sel = state.importados.filter((t) => t.sel);
   if (!sel.length) { toast('Selecione ao menos um lançamento.'); return; }
   if (sel.some((t) => !(t.valor > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(t.data))) { toast('Há lançamentos com valor ou data inválidos.'); return; }
+  const f = faturaAtiva();
+  if ($('#import-usar-venc').checked && !f.ativo) { toast('Informe a data de vencimento da fatura.'); return; }
   const comp = { saida: $('#import-compartilhar').checked, entrada: $('#import-compartilhar-ent').checked };
+  // No modo fatura, a data passa a ser o vencimento e a data da compra vai para a descrição
+  const final = (t) => (f.ativo ? { ...t, data: f.venc, descricao: descricaoFatura(t) } : t);
   const btn = $('#btn-salvar-import');
   btn.disabled = true;
   carregando(true);
   try {
+    let movidos = 0;
     for (const natureza of ['saida', 'entrada']) {
-      const itens = sel.filter((t) => t.natureza === natureza)
+      const daNatureza = sel.filter((t) => t.natureza === natureza).map(final);
+      const novos = daNatureza.filter((t) => !t.mover)
         .map(({ data, valor, tipo, descricao, origem }) => ({ data, valor, tipo, descricao, origem, compartilhado: comp[natureza] }));
-      if (itens.length) await api(ENDPOINT[natureza], { method: 'POST', body: { itens } });
+      const mover = daNatureza.filter((t) => t.mover)
+        .map(({ data, valor, tipo, descricao, mover: g }) => ({ id: g.id, data, valor, tipo, descricao, compartilhado: g.compartilhado }));
+      if (novos.length) await api(ENDPOINT[natureza], { method: 'POST', body: { itens: novos } });
+      if (mover.length) await api(ENDPOINT[natureza], { method: 'PUT', body: { itens: mover } });
+      movidos += mover.length;
     }
-    const mesesImp = [...new Set(sel.map((t) => t.data.slice(0, 7)))].sort();
-    toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')} ✔`);
+    const mesesImp = [...new Set(sel.map((t) => final(t).data.slice(0, 7)))].sort();
+    toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')}${movidos ? ` (${movidos} movidos para o vencimento)` : ''} ✔`);
     state.importados = [];
     state.cache = {};
     $('#import-revisao').classList.add('hidden');
@@ -874,7 +932,8 @@ function interpretarTabela(linhas) {
     data: b.data, descricao: b.descricao, valor: Math.round(Math.abs(b.valor) * 100) / 100,
     natureza: b.natureza, tipo: categorizar(b.descricao, b.natureza),
   }));
-  return { banco: '', transacoes, metodo: 'local' };
+  const tipoDocumento = semNat.length && ehFatura ? 'fatura_cartao' : 'extrato_bancario';
+  return { banco: '', tipoDocumento, vencimento: '', transacoes, metodo: 'local' };
 }
 
 async function lerPdfLocal(file) {
@@ -928,7 +987,10 @@ async function lerPdfLocal(file) {
     const natureza = c.credito || (temSinais ? !c.negativo : PARECE_ENTRADA.test(c.descricao)) ? 'entrada' : 'saida';
     return { data: c.data, descricao: c.descricao, valor: c.valor, natureza, tipo: categorizar(c.descricao, natureza) };
   });
-  return { banco: '', transacoes, metodo: 'local' };
+  const fatura = /fatura|cart[aã]o de cr[eé]dito|limite (total|dispon)/i.test(texto);
+  const mv = texto.match(/venc[a-z]*\D{0,25}(\d{2})[/.-](\d{2})[/.-](\d{2,4})/i);
+  const vencimento = fatura && mv ? `${mv[3].length === 2 ? `20${mv[3]}` : mv[3]}-${mv[2]}-${mv[1]}` : '';
+  return { banco: '', tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento, transacoes, metodo: 'local' };
 }
 
 // ---------- Eventos ----------
@@ -983,6 +1045,9 @@ function ligarEventos() {
     atualizarResumoImport();
   });
   $('#btn-salvar-import').addEventListener('click', salvarImportados);
+  const reavaliar = async () => { await avaliarImportados(); renderImportados(); };
+  $('#import-usar-venc').addEventListener('change', reavaliar);
+  $('#import-venc').addEventListener('change', () => { $('#import-venc-aviso').textContent = ''; reavaliar(); });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.view === 'inicio' && renderInicio());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && state.user) { state.cache = {}; state.metas = null; atualizarView(); }

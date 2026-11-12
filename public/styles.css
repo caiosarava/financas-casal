@@ -184,4 +184,8 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .tabela-pessoas td { text-align: right; padding: 6px 0; font-variant-numeric: tabular-nums; border-top: 1px solid var(--border); }
 .lista.import li.entrada { background: color-mix(in srgb, var(--pos) 7%, transparent); }
 .neg { color: var(--danger); }
+.fatura-box { border: 1px solid var(--border); border-radius: 12px; padding: 4px 12px 10px; margin: 8px 0; }
+.fatura-box small { display: block; margin-top: 4px; }
+.fatura-box .venc { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .9rem; }
+.fatura-box input[type=date] { padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); min-height: 40px; }
 .inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

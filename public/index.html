@@ -131,6 +131,14 @@
             </div>
             <label class="check"><input type="checkbox" id="import-compartilhar" checked> Compartilhar gastos com o casal</label>
             <label class="check"><input type="checkbox" id="import-compartilhar-ent" checked> Compartilhar entradas com o casal</label>
+            <div class="fatura-box">
+              <label class="check"><input type="checkbox" id="import-usar-venc"> 💳 Fatura de cartão: lançar no mês de vencimento</label>
+              <div id="import-venc-campo" class="hidden">
+                <label class="venc">Vencimento da fatura <input type="date" id="import-venc"></label>
+                <small class="sub" id="import-venc-aviso"></small>
+                <small class="sub">Todos os lançamentos vão para esta data; a data da compra fica na descrição, ex.: "Drogasil (compra 05/10)".</small>
+              </div>
+            </div>
             <p class="sub" id="import-resumo"></p>
             <ul id="import-lista" class="lista import"></ul>
             <button id="btn-salvar-import" class="btn primario largo">Salvar selecionados</button>

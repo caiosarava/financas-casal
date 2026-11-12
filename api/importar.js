@@ -10,10 +10,11 @@ const MAX_TEXTO = 400_000; // caracteres de planilha convertida em texto
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['banco', 'tipo_documento', 'transacoes'],
+  required: ['banco', 'tipo_documento', 'vencimento', 'transacoes'],
   properties: {
     banco: { type: 'string', description: 'Nome do banco ou emissor do cartão, se identificável.' },
     tipo_documento: { type: 'string', enum: ['extrato_bancario', 'fatura_cartao', 'outro'] },
+    vencimento: { type: 'string', description: 'Data de vencimento da fatura do cartão (AAAA-MM-DD); string vazia se não for fatura ou se não for possível identificar.' },
     transacoes: {
       type: 'array',
       items: {
@@ -58,6 +59,9 @@ Categorias de SAÍDA:
 Categorias de ENTRADA:
   Salário (salário, pró-labore, folha, adiantamento salarial), Pix recebido, Depósito, Transferência (TED/DOC/transferências recebidas),
   Rendimentos (juros, rendimentos, dividendos), Outras entradas (reembolsos, estornos e o restante).
+
+Vencimento: em faturas de cartão, informe a data de vencimento da fatura (aparece como "Vencimento" no PDF;
+em planilhas, costuma estar no nome do arquivo, ex.: Nubank_2026-11-10.csv). Mantenha em cada transação a data da COMPRA.
 
 Se o documento não for um extrato ou fatura, devolva a lista de transações vazia.`;
 
@@ -137,5 +141,6 @@ export default handler(async (req) => {
       };
     });
 
-  return { banco: dados.banco || '', tipoDocumento: dados.tipo_documento, transacoes, metodo: 'ia' };
+  const vencimento = /^\d{4}-\d{2}-\d{2}$/.test(dados.vencimento || '') ? dados.vencimento : '';
+  return { banco: dados.banco || '', tipoDocumento: dados.tipo_documento, vencimento, transacoes, metodo: 'ia' };
 });
