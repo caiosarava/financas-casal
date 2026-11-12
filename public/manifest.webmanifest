@@ -17,6 +17,7 @@
   ],
   "shortcuts": [
     { "name": "Registrar gasto", "short_name": "Novo gasto", "url": "/?acao=novo", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Registrar entrada", "short_name": "Nova entrada", "url": "/?acao=entrada", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "Metas", "url": "/?view=metas", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

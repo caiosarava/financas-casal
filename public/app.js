@@ -6,7 +6,14 @@ const CATS = {
   'Transporte': '🚗', 'Combustível': '⛽', 'Contas da casa': '🏠', 'Saúde': '🩺',
   'Lazer': '🎉', 'Compras': '🛍️', 'Assinaturas': '📺', 'Outros': '📦',
 };
+const CATS_E = {
+  'Salário': '💼', 'Pix recebido': '⚡', 'Depósito': '🏦', 'Transferência': '🔁', 'Rendimentos': '📈', 'Outras entradas': '💵',
+};
 const RAPIDOS = ['Mercado', 'Farmácia', 'Padaria', 'iFood'];
+const RAPIDOS_E = ['Salário', 'Pix recebido', 'Depósito', 'Transferência'];
+const ENDPOINT = { saida: '/api/gastos', entrada: '/api/entradas' };
+const emojiDe = (tipo) => CATS[tipo] || CATS_E[tipo] || '📦';
+const catsDe = (natureza) => (natureza === 'entrada' ? CATS_E : CATS);
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmt = (v) => brl.format(v || 0);
 const $ = (s, el = document) => el.querySelector(s);
@@ -31,7 +38,7 @@ const state = {
   ano: new Date().getFullYear(),
   visao: lerLS('fc_visao') || 'todos',
   view: 'inicio',
-  cache: {},          // mes -> gastos[]
+  cache: {},          // mes -> { gastos[], entradas[] }
   metas: null,
   charts: {},
   importados: [],
@@ -129,10 +136,11 @@ function entrarNoApp() {
   const params = new URLSearchParams(location.search);
   irPara(params.get('view') || 'inicio');
   if (params.get('acao') === 'novo') abrirGasto();
+  if (params.get('acao') === 'entrada') abrirGasto(null, 'entrada');
 }
 
 // ---------- Navegação ----------
-const TITULOS = { inicio: 'Início', gastos: 'Gastos', metas: 'Metas do ano', importar: 'Importar PDF' };
+const TITULOS = { inicio: 'Início', gastos: 'Lançamentos', metas: 'Metas do ano', importar: 'Importar extrato' };
 function irPara(view) {
   state.view = TITULOS[view] ? view : 'inicio';
   $$('.view').forEach((v) => v.classList.toggle('hidden', v.id !== `view-${state.view}`));
@@ -159,10 +167,13 @@ function deslocarMes(mes, delta) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-async function gastosDoMes(mes, forcar = false) {
+async function dadosDoMes(mes, forcar = false) {
   if (!state.cache[mes] || forcar) {
-    const { gastos } = await api(`/api/gastos?mes=${mes}`);
-    state.cache[mes] = gastos;
+    const [g, e] = await Promise.all([api(`/api/gastos?mes=${mes}`), api(`/api/entradas?mes=${mes}`)]);
+    state.cache[mes] = {
+      gastos: g.itens.map((x) => ({ ...x, natureza: 'saida' })),
+      entradas: e.itens.map((x) => ({ ...x, natureza: 'entrada' })),
+    };
   }
   return state.cache[mes];
 }
@@ -190,11 +201,13 @@ async function renderInicio() {
   $('#mes-label').textContent = mesLabel(state.mes);
   let atual, anterior;
   try {
-    [atual, anterior] = await Promise.all([gastosDoMes(state.mes), gastosDoMes(deslocarMes(state.mes, -1))]);
+    [atual, anterior] = await Promise.all([dadosDoMes(state.mes), dadosDoMes(deslocarMes(state.mes, -1))]);
   } catch (e) { toast(e.message); return; }
   if (state.view !== 'inicio') return;
-  const g = filtrarVisao(atual);
-  const gAnt = filtrarVisao(anterior);
+  const g = filtrarVisao(atual.gastos);
+  const gAnt = filtrarVisao(anterior.gastos);
+  const ent = filtrarVisao(atual.entradas);
+  const totalEnt = ent.reduce((s, x) => s + x.valor, 0);
   const total = g.reduce((s, x) => s + x.valor, 0);
   const totalAnt = gAnt.reduce((s, x) => s + x.valor, 0);
 
@@ -206,13 +219,22 @@ async function renderInicio() {
     $('#comparativo').textContent = `${g.length} gasto${g.length === 1 ? '' : 's'} no mês`;
   }
 
+  // Balanço do mês
+  const saldo = totalEnt - total;
+  $('#bal-entradas').textContent = fmt(totalEnt);
+  $('#bal-gastos').textContent = fmt(total);
+  $('#bal-saldo').textContent = `${saldo < 0 ? '−' : ''}${fmt(Math.abs(saldo))}`;
+  $('#bal-saldo').className = saldo < 0 ? 'neg' : 'pos';
+
   // Por pessoa
-  const porPessoa = state.user.usuarios.map((u) => ({
-    ...u, total: g.filter((x) => x.usuario === u.email).reduce((s, x) => s + x.valor, 0),
-  }));
-  $('#cards-pessoas').innerHTML = `<small class="sub" style="margin:0">Por pessoa</small>${porPessoa.map((p) => `
-    <div class="pessoa-linha"><span><i class="dot" style="background:${corPessoa(p.email)}"></i>${esc(p.nome)}</span><b>${fmt(p.total)}</b></div>`).join('')}
-    <div class="pessoa-linha sub"><span>Compartilhados</span><b>${fmt(g.filter((x) => x.compartilhado).reduce((s, x) => s + x.valor, 0))}</b></div>`;
+  const soma = (lista, email) => lista.filter((x) => x.usuario === email).reduce((s, x) => s + x.valor, 0);
+  $('#cards-pessoas').innerHTML = `<h3>Por pessoa</h3><table class="tabela-pessoas">
+    <thead><tr><th></th><th>Entradas</th><th>Gastos</th></tr></thead><tbody>
+    ${state.user.usuarios.map((u) => `<tr><td><i class="dot" style="background:${corPessoa(u.email)}"></i>${esc(u.nome)}</td>
+      <td class="pos">${fmt(soma(ent, u.email))}</td><td>${fmt(soma(g, u.email))}</td></tr>`).join('')}
+    <tr><td class="sub">Compartilhados</td><td>${fmt(ent.filter((x) => x.compartilhado).reduce((s, x) => s + x.valor, 0))}</td>
+      <td>${fmt(g.filter((x) => x.compartilhado).reduce((s, x) => s + x.valor, 0))}</td></tr>
+    </tbody></table>`;
 
   // Por tipo (barra horizontal, uma cor — magnitude)
   const porTipo = Object.keys(CATS)
@@ -334,62 +356,90 @@ async function renderMetasMini() {
 async function renderLista() {
   $('.mes-label-2').textContent = mesLabel(state.mes);
   const ul = $('#lista-gastos');
-  let gastos;
-  try { gastos = await gastosDoMes(state.mes); } catch (e) { toast(e.message); return; }
-  const tipo = $('#filtro-tipo').value;
-  gastos = filtrarVisao(gastos).filter((g) => !tipo || g.tipo === tipo);
-  if (!gastos.length) { ul.innerHTML = '<li class="vazio">Nenhum gasto encontrado.<br>Toque em ＋ para registrar.</li>'; return; }
+  let dados;
+  try { dados = await dadosDoMes(state.mes); } catch (e) { toast(e.message); return; }
+  const filtro = $('#filtro-tipo').value;
+  let itens = [...dados.gastos, ...dados.entradas];
+  if (filtro === '__saida') itens = dados.gastos;
+  else if (filtro === '__entrada') itens = dados.entradas;
+  else if (filtro) itens = itens.filter((g) => g.tipo === filtro);
+  itens = filtrarVisao(itens).sort((a, b) => b.data.localeCompare(a.data) || (a.natureza === 'entrada' ? -1 : 1));
+  if (!itens.length) { ul.innerHTML = '<li class="vazio">Nenhum lançamento encontrado.<br>Toque em ＋ para registrar.</li>'; return; }
+  const sinal = (g) => (g.natureza === 'entrada' ? 1 : -1);
   let html = '';
   let diaAtual = '';
-  for (const g of gastos) {
+  for (const g of itens) {
     if (g.data !== diaAtual) {
       diaAtual = g.data;
-      const totalDia = gastos.filter((x) => x.data === g.data).reduce((s, x) => s + x.valor, 0);
+      const totalDia = itens.filter((x) => x.data === g.data).reduce((s, x) => s + sinal(x) * x.valor, 0);
       const d = new Date(`${g.data}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
-      html += `<li class="dia linha-entre"><span>${d}</span><span>${fmt(totalDia)}</span></li>`;
+      html += `<li class="dia linha-entre"><span>${d.charAt(0).toUpperCase() + d.slice(1)}</span><span>${totalDia > 0 ? '+' : totalDia < 0 ? '−' : ''}${fmt(Math.abs(totalDia))}</span></li>`;
     }
-    html += `<li class="item" data-id="${esc(g.id)}">
-      <span class="emoji" style="background:${corPessoa(g.usuario)}22">${CATS[g.tipo] || '📦'}</span>
+    const entrada = g.natureza === 'entrada';
+    html += `<li class="item" data-id="${esc(g.id)}" data-n="${g.natureza}">
+      <span class="emoji" style="background:${corPessoa(g.usuario)}22">${emojiDe(g.tipo)}</span>
       <span class="info"><b>${esc(g.descricao || g.tipo)}</b>
-        <small>${esc(g.tipo)} · ${esc(nomeDe(g.usuario))}${g.compartilhado ? '' : '<span class="badge">🔒 só eu</span>'}${g.origem === 'pdf' ? '<span class="badge">PDF</span>' : ''}</small></span>
-      <span class="valor">${fmt(g.valor)}</span></li>`;
+        <small>${esc(g.tipo)} · ${esc(nomeDe(g.usuario))}${g.compartilhado ? '' : '<span class="badge">🔒 só eu</span>'}${g.origem === 'pdf' || g.origem === 'planilha' ? '<span class="badge">importado</span>' : ''}</small></span>
+      <span class="valor ${entrada ? 'pos' : ''}">${entrada ? '+' : '−'}${fmt(g.valor)}</span></li>`;
   }
   ul.innerHTML = html;
   $$('li.item', ul).forEach((li) => li.addEventListener('click', () => {
-    const g = gastos.find((x) => x.id === li.dataset.id);
-    if (g.meu) abrirGasto(g);
+    const g = itens.find((x) => x.id === li.dataset.id && x.natureza === li.dataset.n);
+    if (g.meu) abrirGasto(g, g.natureza);
     else toast(`Registrado por ${nomeDe(g.usuario)} — só quem registrou pode editar.`);
   }));
 }
 
-// ---------- Formulário de gasto ----------
+// ---------- Formulário de lançamento (gasto ou entrada) ----------
+const opcoes = (cats, sel) => Object.keys(cats).map((t) => `<option value="${t}" ${t === sel ? 'selected' : ''}>${cats[t]} ${t}</option>`).join('');
+
 function montarFormularioGasto() {
   if (montarFormularioGasto.ok) return;
   montarFormularioGasto.ok = true;
-  const opts = Object.keys(CATS).map((t) => `<option value="${t}">${CATS[t]} ${t}</option>`).join('');
-  $('#sel-tipo').innerHTML = opts;
-  $('#filtro-tipo').insertAdjacentHTML('beforeend', opts);
-  $('#tipos-rapidos').innerHTML = RAPIDOS.map((t) => `<button type="button" data-tipo="${t}">${CATS[t]} ${t}</button>`).join('');
-  const marcarRapido = () => $$('#tipos-rapidos button').forEach((b) => b.classList.toggle('on', b.dataset.tipo === $('#sel-tipo').value));
-  $$('#tipos-rapidos button').forEach((b) => b.addEventListener('click', () => { $('#sel-tipo').value = b.dataset.tipo; marcarRapido(); }));
+  $('#filtro-tipo').innerHTML = `<option value="">Todos os lançamentos</option>
+    <option value="__saida">💸 Só gastos</option><option value="__entrada">💰 Só entradas</option>
+    <optgroup label="Gastos">${opcoes(CATS)}</optgroup><optgroup label="Entradas">${opcoes(CATS_E)}</optgroup>`;
   $('#sel-tipo').addEventListener('change', marcarRapido);
-  abrirGasto.marcarRapido = marcarRapido;
+  $$('#seg-natureza button').forEach((b) => b.addEventListener('click', () => definirNatureza(b.dataset.n)));
 }
 
-function abrirGasto(g = null) {
+function marcarRapido() {
+  $$('#tipos-rapidos button').forEach((b) => b.classList.toggle('on', b.dataset.tipo === $('#sel-tipo').value));
+}
+
+function definirNatureza(natureza, tipo) {
+  const f = $('#form-gasto');
+  f.dataset.natureza = natureza;
+  const entrada = natureza === 'entrada';
+  $$('#seg-natureza button').forEach((b) => b.classList.toggle('on', b.dataset.n === natureza));
+  const cats = catsDe(natureza);
+  const padrao = tipo || lerLS(entrada ? 'fc_ultimo_tipo_e' : 'fc_ultimo_tipo') || (entrada ? 'Salário' : 'Mercado');
+  $('#sel-tipo').innerHTML = opcoes(cats, cats[padrao] ? padrao : Object.keys(cats)[0]);
+  $('#tipos-rapidos').innerHTML = (entrada ? RAPIDOS_E : RAPIDOS)
+    .map((t) => `<button type="button" data-tipo="${t}">${cats[t]} ${t}</button>`).join('');
+  $$('#tipos-rapidos button').forEach((b) => b.addEventListener('click', () => { $('#sel-tipo').value = b.dataset.tipo; marcarRapido(); }));
+  marcarRapido();
+  $('#inp-descricao').placeholder = entrada ? 'Ex.: salário de novembro' : 'Ex.: compra da semana';
+  if (!f.id.value) $('#dlg-gasto-titulo').textContent = entrada ? 'Nova entrada' : 'Novo gasto';
+  if (!f.id.value) {
+    const comp = lerLS(entrada ? 'fc_ultimo_comp_e' : 'fc_ultimo_comp') || 'SIM';
+    $$('input[name=compartilhado]', f).forEach((r) => { r.checked = r.value === comp; });
+  }
+}
+
+function abrirGasto(g = null, natureza = 'saida') {
   const f = $('#form-gasto');
   f.reset();
   $('#gasto-erro').textContent = '';
   f.id.value = g?.id || '';
   f.valor.value = g ? String(g.valor.toFixed(2)).replace('.', ',') : '';
-  f.tipo.value = g?.tipo || lerLS('fc_ultimo_tipo') || 'Mercado';
   f.data.value = g?.data || hoje();
   f.descricao.value = g?.descricao || '';
-  const comp = g ? (g.compartilhado ? 'SIM' : 'NAO') : (lerLS('fc_ultimo_comp') || 'SIM');
-  $$('input[name=compartilhado]', f).forEach((r) => { r.checked = r.value === comp; });
-  $('#dlg-gasto-titulo').textContent = g ? 'Editar gasto' : 'Novo gasto';
+  definirNatureza(natureza, g?.tipo);
+  if (g) $$('input[name=compartilhado]', f).forEach((r) => { r.checked = r.value === (g.compartilhado ? 'SIM' : 'NAO'); });
+  $('#seg-natureza').classList.toggle('hidden', Boolean(g));
+  if (g) $('#dlg-gasto-titulo').textContent = natureza === 'entrada' ? 'Editar entrada' : 'Editar gasto';
   $('#btn-excluir-gasto').classList.toggle('hidden', !g);
-  abrirGasto.marcarRapido?.();
   $('#dlg-gasto').showModal();
   if (!g) setTimeout(() => f.valor.focus(), 50);
 }
@@ -397,6 +447,8 @@ function abrirGasto(g = null) {
 async function salvarGasto(ev) {
   ev.preventDefault();
   const f = ev.target;
+  const natureza = f.dataset.natureza || 'saida';
+  const entrada = natureza === 'entrada';
   const valor = parseValor(f.valor.value);
   if (!(valor > 0)) { $('#gasto-erro').textContent = 'Informe um valor maior que zero.'; return; }
   const body = {
@@ -410,11 +462,11 @@ async function salvarGasto(ev) {
   const btn = $('button[type=submit]', f);
   btn.disabled = true;
   try {
-    await api('/api/gastos', { method: body.id ? 'PUT' : 'POST', body });
-    gravarLS('fc_ultimo_tipo', body.tipo);
-    gravarLS('fc_ultimo_comp', body.compartilhado ? 'SIM' : 'NAO');
+    await api(ENDPOINT[natureza], { method: body.id ? 'PUT' : 'POST', body });
+    gravarLS(entrada ? 'fc_ultimo_tipo_e' : 'fc_ultimo_tipo', body.tipo);
+    gravarLS(entrada ? 'fc_ultimo_comp_e' : 'fc_ultimo_comp', body.compartilhado ? 'SIM' : 'NAO');
     $('#dlg-gasto').close();
-    toast(body.id ? 'Gasto atualizado ✔' : 'Gasto registrado ✔');
+    toast(`${entrada ? 'Entrada' : 'Gasto'} ${body.id ? 'atualizad' : 'registrad'}${entrada ? 'a' : 'o'} ✔`);
     state.cache = {};
     state.mes = body.data.slice(0, 7);
     atualizarView();
@@ -424,12 +476,14 @@ async function salvarGasto(ev) {
 }
 
 async function excluirGasto() {
-  const id = $('#form-gasto').id.value;
-  if (!id || !confirm('Excluir este gasto?')) return;
+  const f = $('#form-gasto');
+  const id = f.id.value;
+  const natureza = f.dataset.natureza || 'saida';
+  if (!id || !confirm(`Excluir ${natureza === 'entrada' ? 'esta entrada' : 'este gasto'}?`)) return;
   try {
-    await api(`/api/gastos?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await api(`${ENDPOINT[natureza]}?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     $('#dlg-gasto').close();
-    toast('Gasto excluído');
+    toast('Excluído');
     state.cache = {};
     atualizarView();
   } catch (e) { $('#gasto-erro').textContent = e.message; }
@@ -507,7 +561,7 @@ async function salvarMeta(ev) {
   } catch (e) { $('#meta-erro').textContent = e.message; }
 }
 
-// ---------- Importação de PDF ----------
+// ---------- Importação de extrato / fatura (PDF, CSV, XLS, XLSX) ----------
 function lerBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -517,25 +571,37 @@ function lerBase64(file) {
   });
 }
 
+const ehPdf = (file) => /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+const ehCsv = (file) => /\.(csv|txt)$/i.test(file.name) || file.type === 'text/csv';
+
 async function importarPdf(file) {
   if (!file) return;
   const status = $('#import-status');
   $('#import-revisao').classList.add('hidden');
-  status.textContent = state.config.iaHabilitada ? '🤖 Lendo o documento com IA… isso pode levar até 1 minuto.' : '📄 Lendo o documento…';
+  const pdf = ehPdf(file);
+  status.textContent = state.config.iaHabilitada ? '🤖 Lendo o arquivo com IA… isso pode levar até 1 minuto.' : '📄 Lendo o arquivo…';
   carregando(true);
   let resultado;
   try {
+    // Planilhas viram uma tabela (linhas × colunas) antes de qualquer coisa
+    const linhas = pdf ? null : await lerPlanilha(file);
+    if (linhas && !linhas.length) throw new Error('A planilha está vazia.');
+    const local = () => (pdf ? lerPdfLocal(file) : interpretarTabela(linhas));
     if (state.config.iaHabilitada) {
       try {
-        resultado = await api('/api/importar', { method: 'POST', body: { pdf: await lerBase64(file) } });
+        const body = pdf
+          ? { pdf: await lerBase64(file) }
+          : { texto: linhas.map((l) => l.map((c) => String(c).replace(/\|/g, '/')).join(' | ')).join('\n'), nome: file.name };
+        resultado = await api('/api/importar', { method: 'POST', body });
+        resultado.metodo = 'ia';
       } catch (e) {
         if (e.status === 501 || e.status === 413 || e.status >= 500) {
           status.textContent = `IA indisponível (${e.message}). Usando leitura local…`;
-          resultado = await lerPdfLocal(file);
+          resultado = await local();
         } else throw e;
       }
     } else {
-      resultado = await lerPdfLocal(file);
+      resultado = await local();
     }
   } catch (e) {
     status.textContent = `❌ ${e.message}`;
@@ -543,61 +609,77 @@ async function importarPdf(file) {
     return;
   }
 
-  // Marca possíveis duplicados (mesma data e valor já registrados por mim)
+  // Marca possíveis duplicados (mesma data, valor e natureza já registrados por mim)
   const meses = [...new Set(resultado.transacoes.map((t) => t.data.slice(0, 7)))];
-  const existentes = (await Promise.all(meses.map((m) => gastosDoMes(m, true).catch(() => [])))).flat().filter((g) => g.meu);
+  const dados = await Promise.all(meses.map((m) => dadosDoMes(m, true).catch(() => ({ gastos: [], entradas: [] }))));
+  const existentes = dados.flatMap((d) => [...d.gastos, ...d.entradas]).filter((g) => g.meu);
   state.importados = resultado.transacoes.map((t) => {
-    const dup = existentes.some((g) => g.data === t.data && Math.abs(g.valor - t.valor) < 0.01);
-    return { ...t, dup, sel: !dup };
+    const natureza = t.natureza === 'entrada' ? 'entrada' : 'saida';
+    const dup = existentes.some((g) => g.natureza === natureza && g.data === t.data && Math.abs(g.valor - t.valor) < 0.01);
+    return { ...t, natureza, dup, sel: !dup, origem: pdf ? 'pdf' : 'planilha' };
   });
   carregando(false);
 
   if (!state.importados.length) {
-    status.textContent = 'Nenhum gasto encontrado neste PDF.';
+    status.textContent = 'Nenhum lançamento encontrado neste arquivo.';
     return;
   }
-  const total = state.importados.reduce((s, t) => s + t.valor, 0);
-  status.textContent = `✅ ${state.importados.length} gastos encontrados (${fmt(total)})${resultado.banco ? ` · ${resultado.banco}` : ''}${resultado.metodo === 'local' ? ' · leitura local, confira os tipos' : ''}.`;
+  const qtd = (n) => state.importados.filter((t) => t.natureza === n).length;
+  status.textContent = `✅ ${qtd('saida')} gastos e ${qtd('entrada')} entradas encontrados${resultado.banco ? ` · ${resultado.banco}` : ''}${resultado.metodo === 'local' ? ' · leitura local, confira os tipos' : ''}.`;
   renderImportados();
 }
 
 function renderImportados() {
-  const opts = (sel) => Object.keys(CATS).map((t) => `<option value="${t}" ${t === sel ? 'selected' : ''}>${CATS[t]} ${t}</option>`).join('');
-  $('#import-lista').innerHTML = state.importados.map((t, i) => `<li data-i="${i}">
+  $('#import-lista').innerHTML = state.importados.map((t, i) => `<li data-i="${i}" class="${t.natureza === 'entrada' ? 'entrada' : ''}">
     <input type="checkbox" data-k="sel" ${t.sel ? 'checked' : ''} aria-label="Selecionar">
     <div class="campos">
       <input type="text" class="desc" data-k="descricao" value="${esc(t.descricao)}" aria-label="Descrição">
       <input type="date" data-k="data" value="${t.data}" aria-label="Data">
       <input inputmode="decimal" data-k="valor" value="${t.valor.toFixed(2).replace('.', ',')}" aria-label="Valor">
-      <select data-k="tipo" class="desc" aria-label="Tipo">${opts(t.tipo)}</select>
-      ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe gasto com mesma data e valor)</small>' : ''}
+      <select data-k="natureza" aria-label="Gasto ou entrada">
+        <option value="saida" ${t.natureza === 'saida' ? 'selected' : ''}>💸 Gasto</option>
+        <option value="entrada" ${t.natureza === 'entrada' ? 'selected' : ''}>💰 Entrada</option>
+      </select>
+      <select data-k="tipo" aria-label="Tipo">${opcoes(catsDe(t.natureza), t.tipo)}</select>
+      ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe lançamento com mesma data e valor)</small>' : ''}
     </div></li>`).join('');
-  $('#import-titulo').textContent = `Revise os gastos (${state.importados.length})`;
+  $('#import-titulo').textContent = `Revise os lançamentos (${state.importados.length})`;
+  atualizarResumoImport();
   $('#import-revisao').classList.remove('hidden');
 }
 
+function atualizarResumoImport() {
+  const sel = state.importados.filter((t) => t.sel);
+  const soma = (n) => sel.filter((t) => t.natureza === n).reduce((s, t) => s + (t.valor || 0), 0);
+  $('#import-resumo').textContent = `Selecionados: ${sel.length} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`;
+}
+
 async function salvarImportados() {
-  const compartilhado = $('#import-compartilhar').checked;
-  const lista = state.importados.filter((t) => t.sel).map((t) => ({ ...t, compartilhado, origem: 'pdf' }));
-  if (!lista.length) { toast('Selecione ao menos um gasto.'); return; }
-  if (lista.some((t) => !(t.valor > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(t.data))) { toast('Há gastos com valor ou data inválidos.'); return; }
+  const sel = state.importados.filter((t) => t.sel);
+  if (!sel.length) { toast('Selecione ao menos um lançamento.'); return; }
+  if (sel.some((t) => !(t.valor > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(t.data))) { toast('Há lançamentos com valor ou data inválidos.'); return; }
+  const comp = { saida: $('#import-compartilhar').checked, entrada: $('#import-compartilhar-ent').checked };
   const btn = $('#btn-salvar-import');
   btn.disabled = true;
   carregando(true);
   try {
-    await api('/api/gastos', { method: 'POST', body: { gastos: lista.map(({ data, valor, tipo, descricao, compartilhado: c, origem }) => ({ data, valor, tipo, descricao, compartilhado: c, origem })) } });
-    toast(`${lista.length} gastos importados ✔`);
+    for (const natureza of ['saida', 'entrada']) {
+      const itens = sel.filter((t) => t.natureza === natureza)
+        .map(({ data, valor, tipo, descricao, origem }) => ({ data, valor, tipo, descricao, origem, compartilhado: comp[natureza] }));
+      if (itens.length) await api(ENDPOINT[natureza], { method: 'POST', body: { itens } });
+    }
+    toast(`${sel.length} lançamentos importados ✔`);
     state.importados = [];
     state.cache = {};
     $('#import-revisao').classList.add('hidden');
     $('#import-status').textContent = '';
     $('#input-pdf').value = '';
-    state.mes = lista.map((t) => t.data).sort().pop().slice(0, 7);
+    state.mes = sel.map((t) => t.data).sort().pop().slice(0, 7);
     irPara('inicio');
   } catch (e) { toast(e.message); } finally { btn.disabled = false; carregando(false); }
 }
 
-// Leitura local (sem IA): extrai o texto do PDF com pdf.js e procura linhas com data + valor.
+// ----- Leitura local (sem IA) -----
 const PALAVRAS = [
   ['iFood', /ifood|ifd\*|rappi|z[eé] delivery|aiqfome|james delivery/i],
   ['Mercado', /mercad|supermerc|atacad|assa[ií]|carrefour|p[aã]o de a[cç]|zaffari|angeloni|hortifr|sacol[aã]o|a[cç]ougue|big ?bom|condor|savegnago|muffato|giassi|bistek|cooper|nacional|dia\s?%?brasil/i],
@@ -612,24 +694,178 @@ const PALAVRAS = [
   ['Lazer', /cinema|cinemark|ingresso|sympla|hotel|airbnb|booking|decolar|latam|gol |azul |show|teatro|parque/i],
   ['Compras', /amazon|mercado ?livre|mercadolivre|shopee|magalu|magazine|americanas|renner|riachuelo|c&a|zara|centauro|netshoes|shein|aliexpress|kabum|leroy|loja/i],
 ];
-const IGNORAR = /saldo|total|pagamento (efetuado|recebido)|pagto fatura|pagamento fatura|estorno|cr[eé]dito|recebid|sal[aá]rio|rendimento|resgate|aplica[cç][aã]o|transf(er[eê]ncia)? (entre|mesma)|limite|juros sobre saldo|ted recebida|pix recebido|dep[oó]sito/i;
+const PALAVRAS_E = [
+  ['Salário', /sal[aá]rio|folha|pagto sal|pr[oó][- ]?labore|proventos|vencimentos|adiant/i],
+  ['Rendimentos', /rendimento|juros|dividend|remunera[cç][aã]o/i],
+  ['Pix recebido', /pix/i],
+  ['Depósito', /dep[oó]sito|dep\.?\s|deposito/i],
+  ['Transferência', /ted|doc|transf/i],
+];
+// Linhas que não são lançamentos (saldos, totais, pagamento da fatura, investimentos)
+const IGNORAR = /saldo|^total|total (da|de|geral)|pagamento (efetuado|recebido|da fatura)|pagto fatura|pagamento fatura|limite|aplica[cç][aã]o|resgate|invest/i;
+const PARECE_ENTRADA = /sal[aá]rio|recebid|dep[oó]sito|cr[eé]dito em conta|estorno|reembolso|rendimento|proventos|ted recebida|pix recebido|transfer[eê]ncia recebida/i;
 
-function categorizar(desc) {
-  for (const [cat, re] of PALAVRAS) if (re.test(desc)) return cat;
-  return 'Outros';
+function categorizar(desc, natureza = 'saida') {
+  for (const [cat, re] of natureza === 'entrada' ? PALAVRAS_E : PALAVRAS) if (re.test(desc)) return cat;
+  return natureza === 'entrada' ? 'Outras entradas' : 'Outros';
+}
+
+function carregarScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Não foi possível carregar o leitor de arquivos. Verifique a internet.'));
+    document.head.appendChild(s);
+  });
 }
 
 async function carregarPdfJs() {
-  if (window.pdfjsLib) return window.pdfjsLib;
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    s.onload = resolve;
-    s.onerror = () => reject(new Error('Não foi possível carregar o leitor de PDF.'));
-    document.head.appendChild(s);
-  });
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  if (!window.pdfjsLib) {
+    await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
   return window.pdfjsLib;
+}
+
+// Converte texto/célula em número no formato brasileiro ou internacional
+function numeroBR(v) {
+  if (typeof v === 'number') return v;
+  let t = String(v ?? '').trim();
+  if (!t) return NaN;
+  let neg = /^-|-$|^\(.*\)$|\bD$/i.test(t);
+  t = t.replace(/[R$\s()]/g, '').replace(/[DC]$/i, '').replace(/^-|-$/g, '');
+  if (!/^[\d.,]+$/.test(t)) return NaN;
+  if (t.includes(',') && t.lastIndexOf(',') > t.lastIndexOf('.')) t = t.replace(/\./g, '').replace(',', '.');
+  else t = t.replace(/,/g, '');
+  const n = Number(t);
+  return Number.isFinite(n) ? (neg ? -n : n) : NaN;
+}
+
+// Converte célula de data (Date, número serial do Excel ou texto) em AAAA-MM-DD
+function dataISO(v, anoPadrao) {
+  if (v instanceof Date && !Number.isNaN(v)) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  if (typeof v === 'number' && v > 20000 && v < 80000) { // serial do Excel
+    const d = new Date(Math.round((v - 25569) * 864e5));
+    return d.toISOString().slice(0, 10);
+  }
+  const t = String(v ?? '').trim();
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = t.match(/^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?/);
+  if (!m) return null;
+  const dia = Number(m[1]);
+  const mes = Number(m[2]);
+  if (dia < 1 || dia > 31 || mes < 1 || mes > 12) return null;
+  const ano = m[3] ? Number(m[3].length === 2 ? `20${m[3]}` : m[3]) : anoPadrao;
+  return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
+// Lê CSV (com detecção de separador e codificação) ou XLS/XLSX/ODS → matriz de células
+async function lerPlanilha(file) {
+  const buf = await file.arrayBuffer();
+  if (ehCsv(file)) {
+    let texto;
+    try { texto = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { texto = new TextDecoder('windows-1252').decode(buf); }
+    return parseCsv(texto.replace(/^﻿/, ''));
+  }
+  if (!window.XLSX) await carregarScript('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js');
+  const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+  const linhas = [];
+  for (const nome of wb.SheetNames) {
+    const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, raw: true, defval: '', blankrows: false });
+    linhas.push(...rows);
+  }
+  return linhas.filter((l) => l.some((c) => String(c).trim() !== ''));
+}
+
+function parseCsv(texto) {
+  const amostra = texto.split(/\r?\n/).slice(0, 20).join('\n');
+  const sep = [';', ',', '\t', '|'].map((c) => [c, amostra.split(c).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const linhas = [];
+  let linha = [];
+  let campo = '';
+  let aspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (aspas) {
+      if (c === '"' && texto[i + 1] === '"') { campo += '"'; i++; } else if (c === '"') aspas = false; else campo += c;
+    } else if (c === '"') aspas = true;
+    else if (c === sep) { linha.push(campo); campo = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && texto[i + 1] === '\n') i++;
+      linha.push(campo); campo = '';
+      if (linha.some((x) => x.trim())) linhas.push(linha.map((x) => x.trim()));
+      linha = [];
+    } else campo += c;
+  }
+  linha.push(campo);
+  if (linha.some((x) => x.trim())) linhas.push(linha.map((x) => x.trim()));
+  return linhas;
+}
+
+// Identifica colunas (data, descrição, valor ou débito/crédito) e monta os lançamentos
+function interpretarTabela(linhas) {
+  const norm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  let iCab = linhas.findIndex((l) => l.some((c) => /^data|date/.test(norm(c))) && l.some((c) => /valor|debito|credito|amount|quantia|montante/.test(norm(c))));
+  let col = {};
+  if (iCab >= 0) {
+    const cab = linhas[iCab].map(norm);
+    const achar = (re, exceto) => cab.findIndex((c) => re.test(c) && !(exceto && exceto.test(c)));
+    col = {
+      data: achar(/^data|date/),
+      desc: achar(/descri|historico|lancamento|estabelecimento|title|titulo|memo|detalhe|identificacao/),
+      valor: achar(/valor|amount|quantia|montante/, /saldo|dolar|us\$|usd/),
+      debito: achar(/debito|saida/),
+      credito: achar(/credito|entrada/),
+    };
+  } else {
+    // Sem cabeçalho: deduz pelas primeiras linhas (data, texto mais longo, último número)
+    iCab = -1;
+    const exemplo = linhas.find((l) => l.some((c) => dataISO(c, 2000)) && l.some((c) => !Number.isNaN(numeroBR(c))));
+    if (!exemplo) throw new Error('Não encontrei colunas de data e valor na planilha.');
+    col.data = exemplo.findIndex((c) => dataISO(c, 2000));
+    col.valor = exemplo.map((c, i) => [c, i]).filter(([c, i]) => i !== col.data && !Number.isNaN(numeroBR(c))).map(([, i]) => i)[0];
+    col.desc = exemplo.map((c, i) => [String(c), i]).filter(([, i]) => i !== col.data && i !== col.valor).sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? -1;
+    col.debito = -1;
+    col.credito = -1;
+  }
+  if (col.data < 0 || (col.valor < 0 && col.debito < 0 && col.credito < 0)) throw new Error('Não encontrei colunas de data e valor na planilha.');
+
+  const anoAtual = new Date().getFullYear();
+  const brutos = [];
+  for (const l of linhas.slice(iCab + 1)) {
+    const data = dataISO(l[col.data], anoAtual);
+    if (!data) continue;
+    const descricao = String(col.desc >= 0 ? l[col.desc] : l.filter((_, i) => i !== col.data && i !== col.valor).join(' ')).replace(/\s+/g, ' ').trim();
+    let valor;
+    let natureza = null;
+    if (col.debito >= 0 || col.credito >= 0) {
+      const deb = col.debito >= 0 ? numeroBR(l[col.debito]) : NaN;
+      const cre = col.credito >= 0 ? numeroBR(l[col.credito]) : NaN;
+      if (!Number.isNaN(deb) && deb !== 0) { valor = Math.abs(deb); natureza = 'saida'; }
+      else if (!Number.isNaN(cre) && cre !== 0) { valor = Math.abs(cre); natureza = 'entrada'; }
+      else if (col.valor >= 0) valor = numeroBR(l[col.valor]);
+    } else valor = numeroBR(l[col.valor]);
+    if (!Number.isFinite(valor) || valor === 0 || IGNORAR.test(descricao)) continue;
+    brutos.push({ data, descricao: descricao.slice(0, 120), valor, natureza });
+  }
+  // Coluna única de valor: o sinal define a natureza. Em extratos, negativos = gastos;
+  // em faturas de cartão (maioria positiva), positivos = compras e negativos = estornos/créditos.
+  const semNat = brutos.filter((b) => !b.natureza);
+  const negativos = semNat.filter((b) => b.valor < 0).length;
+  const ehFatura = negativos < semNat.length / 2;
+  for (const b of semNat) {
+    if (ehFatura) b.natureza = b.valor < 0 || PARECE_ENTRADA.test(b.descricao) ? 'entrada' : 'saida';
+    else b.natureza = b.valor < 0 ? 'saida' : 'entrada';
+  }
+  const transacoes = brutos.map((b) => ({
+    data: b.data, descricao: b.descricao, valor: Math.round(Math.abs(b.valor) * 100) / 100,
+    natureza: b.natureza, tipo: categorizar(b.descricao, b.natureza),
+  }));
+  return { banco: '', transacoes, metodo: 'local' };
 }
 
 async function lerPdfLocal(file) {
@@ -653,18 +889,19 @@ async function lerPdfLocal(file) {
   const texto = linhas.join('\n');
   const anoDoc = Number((texto.match(/\b(20\d{2})\b/) || [])[1]) || new Date().getFullYear();
   const reData = /\b(\d{2})[/.-](\d{2})(?:[/.-](\d{2,4}))?\b/;
-  const reValor = /(-\s?)?(?:R\$\s?)?(\d{1,3}(?:\.\d{3})*,\d{2})(\s?-|\s?D\b)?/g;
+  const reValor = /(-\s?)?(?:R\$\s?)?(\d{1,3}(?:\.\d{3})*,\d{2})(\s?-|\s?[DC]\b)?/g;
+  const temSaldo = /saldo/i.test(texto);
   const candidatos = [];
   for (const linha of linhas) {
     const md = linha.match(reData);
     if (!md) continue;
     const valores = [...linha.matchAll(reValor)];
     if (!valores.length) continue;
-    const v = valores[valores.length > 1 ? valores.length - 2 : 0]; // ignora coluna de saldo, se houver
-    const usado = valores.length > 1 && /saldo/i.test(texto) ? v : valores[valores.length - 1];
-    const negativo = Boolean(usado[1] || usado[3]);
+    const usado = valores.length > 1 && temSaldo ? valores[valores.length - 2] : valores[valores.length - 1]; // ignora coluna de saldo
+    const negativo = Boolean(usado[1] || /-|D/.test(usado[3] || ''));
+    const credito = /C/.test(usado[3] || '');
     const valor = Number(usado[2].replace(/\./g, '').replace(',', '.'));
-    let descricao = linha.replace(md[0], '').replace(usado[0], '').replace(reValor, '').replace(/\s+/g, ' ').trim();
+    const descricao = linha.replace(md[0], '').replace(reValor, '').replace(/\s+/g, ' ').trim();
     if (!valor || IGNORAR.test(descricao) || descricao.length < 2) continue;
     const dia = Number(md[1]);
     const mes = Number(md[2]);
@@ -673,15 +910,15 @@ async function lerPdfLocal(file) {
     if (!md[3] && mes > new Date().getMonth() + 1 && ano === new Date().getFullYear()) ano -= 1;
     candidatos.push({
       data: `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`,
-      descricao: descricao.slice(0, 120),
-      valor,
-      negativo,
-      tipo: categorizar(descricao),
+      descricao: descricao.slice(0, 120), valor, negativo, credito,
     });
   }
-  // Em extratos, débitos costumam vir com sinal negativo: se houver negativos, usa só eles.
-  const temNegativos = candidatos.some((c) => c.negativo) && candidatos.some((c) => !c.negativo);
-  const transacoes = candidatos.filter((c) => !temNegativos || c.negativo).map(({ negativo, ...c }) => c);
+  // Extratos: débitos costumam vir negativos (ou com "D"); se houver os dois sinais, positivos são entradas.
+  const temSinais = candidatos.some((c) => c.negativo) && candidatos.some((c) => !c.negativo);
+  const transacoes = candidatos.map((c) => {
+    const natureza = c.credito || (temSinais ? !c.negativo : PARECE_ENTRADA.test(c.descricao)) ? 'entrada' : 'saida';
+    return { data: c.data, descricao: c.descricao, valor: c.valor, natureza, tipo: categorizar(c.descricao, natureza) };
+  });
   return { banco: '', transacoes, metodo: 'local' };
 }
 
@@ -689,6 +926,7 @@ async function lerPdfLocal(file) {
 function ligarEventos() {
   $$('.nav button').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.view)));
   $('#fab').addEventListener('click', () => abrirGasto());
+  $('#btn-nova-entrada').addEventListener('click', () => abrirGasto(null, 'entrada'));
   $('#btn-sair').addEventListener('click', () => { if (confirm('Sair do aplicativo?')) sair(); });
   $$('[data-mes]').forEach((b) => b.addEventListener('click', () => { state.mes = deslocarMes(state.mes, Number(b.dataset.mes)); atualizarView(); }));
   $$('[data-ano]').forEach((b) => b.addEventListener('click', () => { state.ano += Number(b.dataset.ano); state.metas = null; renderMetas(); }));
@@ -712,11 +950,18 @@ function ligarEventos() {
     const k = e.target.dataset.k;
     if (k === 'sel') t.sel = e.target.checked;
     else if (k === 'valor') t.valor = parseValor(e.target.value);
-    else t[k] = e.target.value;
+    else if (k === 'natureza') {
+      t.natureza = e.target.value;
+      t.tipo = categorizar(t.descricao, t.natureza);
+      li.classList.toggle('entrada', t.natureza === 'entrada');
+      $('select[data-k=tipo]', li).innerHTML = opcoes(catsDe(t.natureza), t.tipo);
+    } else t[k] = e.target.value;
+    atualizarResumoImport();
   });
   $('#import-todos').addEventListener('change', (e) => {
     state.importados.forEach((t) => { t.sel = e.target.checked; });
     $$('#import-lista input[data-k=sel]').forEach((c) => { c.checked = e.target.checked; });
+    atualizarResumoImport();
   });
   $('#btn-salvar-import').addEventListener('click', salvarImportados);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.view === 'inicio' && renderInicio());

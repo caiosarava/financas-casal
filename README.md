@@ -1,6 +1,6 @@
 # 💑 Finanças do Casal
 
-PWA (web app instalável no Android) para o casal registrar gastos, acompanhar o mês num dashboard e guardar dinheiro para as metas do ano. Os dados ficam numa **planilha Google Sheets** no Drive do Caio.
+PWA (web app instalável no Android) para o casal registrar gastos e entradas, acompanhar o mês num dashboard e guardar dinheiro para as metas do ano. Os dados ficam numa **planilha Google Sheets** no Drive do Caio.
 
 - **Usuários:** apenas `caio.sarava@gmail.com` e `thianedepra@gmail.com` (login com Google).
 - **Hospedagem:** Vercel, com deploy automático a partir do GitHub.
@@ -10,16 +10,17 @@ PWA (web app instalável no Android) para o casal registrar gastos, acompanhar o
 
 | Tela | O que faz |
 |---|---|
-| **Início** | Total do mês (comparado ao mês anterior), gastos por pessoa, gráfico por tipo, gráfico por pessoa × tipo, evolução acumulada no mês e resumo das metas. Filtros **Tudo / Casal / Meus** e navegação entre meses. Tocar num tipo abre a lista filtrada. |
+| **Início** | Gastos do mês (comparado ao mês anterior), **balanço Entradas × Gastos × Saldo**, botão **＋ Registrar entrada**, entradas e gastos por pessoa, gráfico por tipo, gráfico por pessoa × tipo, evolução acumulada no mês e resumo das metas. Filtros **Tudo / Casal / Meus** e navegação entre meses. Tocar num tipo abre a lista filtrada. |
 | **＋ (botão flutuante)** | Registrar gasto: valor, tipo (atalhos para Mercado, Farmácia, Padaria e iFood + outros tipos), data, descrição e **quem pode ver**: 👫 Casal (compartilhado) ou 🔒 Só eu. |
-| **Gastos** | Lista do mês agrupada por dia, com filtro por tipo. Toque num gasto seu para editar/excluir. |
+| **Registrar entrada** | No mesmo formulário (alternando 💸 Gasto / 💰 Entrada) ou pelo botão do dashboard: Salário, Pix recebido, Depósito, Transferência, Rendimentos e Outras entradas — também com opção casal / só eu. |
+| **Lançamentos** | Gastos e entradas do mês agrupados por dia (entradas em verde com "+"), com filtro por tipo, só gastos ou só entradas. Toque num lançamento seu para editar/excluir. |
 | **Metas** | Meta anual do **casal** e meta **individual**. Botão **＋ Guardar** registra cada valor guardado; a barra mostra o progresso e quanto falta por mês até dezembro. Metas individuais só aparecem para o dono. |
-| **Importar** | Upload de PDF de extrato bancário ou fatura do cartão. A IA (Claude) lê o documento, extrai os gastos e identifica o tipo. Você revisa, ajusta, desmarca duplicados e salva. Sem chave de IA, há um leitor local (heurístico) de reserva. |
+| **Importar** | Upload do extrato bancário ou fatura do cartão em **PDF, CSV, XLS, XLSX ou ODS**. A IA (Claude) extrai **gastos e entradas** e identifica o tipo de cada um. Você revisa, troca gasto ↔ entrada, ajusta tipos, desmarca duplicados e salva. Sem chave de IA, há leitores locais de reserva (para CSV/XLS eles reconhecem colunas como Data, Histórico/Descrição, Valor ou Débito/Crédito). |
 
-### Regras de visibilidade
-- Gasto **compartilhado**: os dois veem e entra nos gráficos do casal.
-- Gasto **só eu**: aparece apenas para quem registrou.
-- Só quem registrou pode editar ou excluir o gasto.
+### Regras de visibilidade (valem para gastos e entradas)
+- Lançamento **compartilhado**: os dois veem e entra nos gráficos do casal.
+- Lançamento **só eu**: aparece apenas para quem registrou.
+- Só quem registrou pode editar ou excluir.
 
 ## Estrutura
 
@@ -30,12 +31,13 @@ api/               → funções serverless da Vercel
   config.js        → configurações públicas (client id do Google, categorias)
   auth.js          → login Google → token de sessão (30 dias)
   gastos.js        → listar / criar (1 ou vários) / editar / excluir gastos
+  entradas.js      → o mesmo para entradas (salário, Pix, depósito, transferência…)
   metas.js         → metas anuais e valores guardados
-  importar.js      → leitura do PDF com o Claude
+  importar.js      → leitura do extrato (PDF ou planilha convertida em texto) com o Claude
 lib/               → autenticação, acesso ao Sheets, categorias
 ```
 
-A planilha recebe automaticamente 3 abas na primeira utilização: **Gastos**, **Metas** e **Aportes**.
+A planilha usa as abas **Gastos**, **Entradas**, **Metas** e **Aportes** — as que faltarem são criadas automaticamente no primeiro uso.
 
 ---
 
@@ -98,7 +100,8 @@ npx vercel dev               # http://localhost:3000
 ```
 
 ## Observações
-- **Tamanho do PDF:** até ~3 MB por arquivo (limite de requisição da Vercel). Para arquivos maiores, divida o PDF.
+- **Tamanho dos arquivos:** PDF até ~3 MB (limite de requisição da Vercel); planilhas até ~400 mil caracteres. Para arquivos maiores, exporte um período menor.
+- **XLS/XLSX:** o leitor (SheetJS 0.20.3) é carregado sob demanda de `cdn.sheetjs.com` na primeira importação de planilha. CSV é lido sem bibliotecas (detecta `;`/`,` e acentuação UTF-8 ou Windows-1252).
 - **Duplicados:** na importação, gastos com mesma data e valor já registrados por você vêm desmarcados e sinalizados.
-- **Categorias:** definidas em `lib/categorias.js` e `public/app.js` (mantenha as duas listas iguais).
+- **Categorias:** gastos e entradas definidas em `lib/categorias.js` e `public/app.js` (mantenha as listas iguais).
 - **Privacidade:** o servidor filtra os gastos "só eu" antes de enviar ao app; a planilha em si contém todos os registros.

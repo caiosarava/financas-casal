@@ -55,9 +55,17 @@
 
         <div class="cards-resumo">
           <div class="card destaque">
-            <small>Total do mês</small>
+            <small>Gastos do mês</small>
             <strong id="total-mes">R$ 0,00</strong>
             <span id="comparativo" class="sub"></span>
+          </div>
+          <div class="card">
+            <div class="balanco">
+              <div><small>Entradas</small><b id="bal-entradas" class="pos">R$ 0,00</b></div>
+              <div><small>Gastos</small><b id="bal-gastos">R$ 0,00</b></div>
+              <div><small>Saldo</small><b id="bal-saldo">R$ 0,00</b></div>
+            </div>
+            <button class="btn largo entrada-btn" id="btn-nova-entrada">＋ Registrar entrada</button>
           </div>
           <div class="card" id="cards-pessoas"></div>
         </div>
@@ -89,7 +97,7 @@
             <span class="mes-label-2"></span>
             <button class="icon-btn" data-mes="1" aria-label="Próximo mês">›</button>
           </div>
-          <select id="filtro-tipo" aria-label="Filtrar por tipo"><option value="">Todos os tipos</option></select>
+          <select id="filtro-tipo" aria-label="Filtrar por tipo"></select>
         </div>
         <ul id="lista-gastos" class="lista"></ul>
       </section>
@@ -107,21 +115,23 @@
       <!-- Importar -->
       <section id="view-importar" class="view hidden">
         <div class="card">
-          <h3>Importar extrato ou fatura (PDF)</h3>
-          <p class="sub">Envie o PDF do extrato bancário ou da fatura do cartão. Os gastos são lidos e classificados automaticamente — você revisa antes de salvar.</p>
+          <h3>Importar extrato ou fatura</h3>
+          <p class="sub">Envie o extrato bancário ou a fatura do cartão em <b>PDF, CSV, XLS ou XLSX</b>. Gastos e entradas são lidos e classificados automaticamente — você revisa antes de salvar.</p>
           <label class="upload">
-            <input type="file" id="input-pdf" accept="application/pdf">
-            <span>📄 Escolher PDF</span>
+            <input type="file" id="input-pdf" accept="application/pdf,.pdf,.csv,text/csv,.txt,.xls,.xlsx,.ods,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+            <span>📄 Escolher arquivo (PDF, CSV, XLS)</span>
           </label>
           <p id="import-status" class="sub"></p>
         </div>
         <div id="import-revisao" class="hidden">
           <div class="card">
             <div class="linha-entre">
-              <h3 id="import-titulo">Revise os gastos</h3>
+              <h3 id="import-titulo">Revise os lançamentos</h3>
               <label class="check"><input type="checkbox" id="import-todos" checked> todos</label>
             </div>
-            <label class="check"><input type="checkbox" id="import-compartilhar" checked> Compartilhar todos com o casal</label>
+            <label class="check"><input type="checkbox" id="import-compartilhar" checked> Compartilhar gastos com o casal</label>
+            <label class="check"><input type="checkbox" id="import-compartilhar-ent" checked> Compartilhar entradas com o casal</label>
+            <p class="sub" id="import-resumo"></p>
             <ul id="import-lista" class="lista import"></ul>
             <button id="btn-salvar-import" class="btn primario largo">Salvar selecionados</button>
           </div>
@@ -133,7 +143,7 @@
 
     <nav class="nav">
       <button data-view="inicio" class="on"><span>📊</span>Início</button>
-      <button data-view="gastos"><span>🧾</span>Gastos</button>
+      <button data-view="gastos"><span>🧾</span>Lançamentos</button>
       <button data-view="metas"><span>🎯</span>Metas</button>
       <button data-view="importar"><span>📥</span>Importar</button>
     </nav>
@@ -144,6 +154,10 @@
     <form id="form-gasto" method="dialog">
       <h3 id="dlg-gasto-titulo">Novo gasto</h3>
       <input type="hidden" name="id">
+      <div class="seg natureza" id="seg-natureza" role="tablist" aria-label="Tipo de lançamento">
+        <button type="button" data-n="saida" class="on">💸 Gasto</button>
+        <button type="button" data-n="entrada">💰 Entrada</button>
+      </div>
       <label>Valor (R$)
         <input name="valor" inputmode="decimal" placeholder="0,00" required autocomplete="off">
       </label>
@@ -155,7 +169,7 @@
         <input type="date" name="data" required>
       </label>
       <label>Descrição (opcional)
-        <input name="descricao" maxlength="200" placeholder="Ex.: compra da semana">
+        <input name="descricao" maxlength="200" placeholder="Ex.: compra da semana" id="inp-descricao">
       </label>
       <fieldset class="visibilidade">
         <legend>Quem pode ver?</legend>
