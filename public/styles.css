@@ -73,7 +73,7 @@ main { padding: 0 16px; }
 
 .filtros { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; }
 .mes-nav { display: flex; align-items: center; gap: 4px; background: var(--card); border-radius: 999px; padding: 2px; box-shadow: var(--shadow); }
-.mes-nav span { min-width: 120px; text-align: center; font-weight: 600; font-size: .95rem; }
+.mes-nav .mes-label { border: 0; background: none; cursor: pointer; padding: 8px 4px; min-width: 150px; text-align: center; font-weight: 600; font-size: .95rem; }
 .ano-nav { width: fit-content; margin: 0 auto 12px; }
 .btn-sair { border: 1px solid var(--border); background: var(--card); border-radius: 999px; padding: 8px 14px; font-size: .85rem; color: var(--muted); cursor: pointer; }
 .icon-btn { border: 0; background: transparent; width: 40px; height: 40px; border-radius: 999px; font-size: 1.25rem; cursor: pointer; }
@@ -184,3 +184,4 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .tabela-pessoas td { text-align: right; padding: 6px 0; font-variant-numeric: tabular-nums; border-top: 1px solid var(--border); }
 .lista.import li.entrada { background: color-mix(in srgb, var(--pos) 7%, transparent); }
 .neg { color: var(--danger); }
+.inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

@@ -43,7 +43,7 @@
         <div class="filtros">
           <div class="mes-nav">
             <button class="icon-btn" data-mes="-1" aria-label="Mês anterior">‹</button>
-            <span id="mes-label"></span>
+            <button type="button" id="mes-label" class="mes-label" title="Escolher mês"></button>
             <button class="icon-btn" data-mes="1" aria-label="Próximo mês">›</button>
           </div>
           <div class="seg" id="filtro-visao" role="tablist">
@@ -94,7 +94,7 @@
         <div class="filtros">
           <div class="mes-nav">
             <button class="icon-btn" data-mes="-1" aria-label="Mês anterior">‹</button>
-            <span class="mes-label-2"></span>
+            <button type="button" class="mes-label mes-label-2" title="Escolher mês"></button>
             <button class="icon-btn" data-mes="1" aria-label="Próximo mês">›</button>
           </div>
           <select id="filtro-tipo" aria-label="Filtrar por tipo"></select>
@@ -208,6 +208,7 @@
     </form>
   </dialog>
 
+  <input type="month" id="inp-mes" class="inp-mes" aria-label="Escolher mês" tabindex="-1">
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="carregando" class="carregando hidden"><div class="spinner"></div></div>
 

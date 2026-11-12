@@ -34,7 +34,7 @@ const state = {
   token: lerLS('fc_token'),
   user: null,
   config: null,
-  mes: hoje().slice(0, 7),
+  mes: lerSS('fc_mes') || hoje().slice(0, 7),
   ano: new Date().getFullYear(),
   visao: lerLS('fc_visao') || 'todos',
   view: 'inicio',
@@ -43,6 +43,14 @@ const state = {
   charts: {},
   importados: [],
 };
+
+// Mês em exibição: lembrado durante a sessão (sobrevive a "atualizar a tela")
+function lerSS(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function mudarMes(mes) {
+  if (!/^\d{4}-\d{2}$/.test(mes || '')) return;
+  state.mes = mes;
+  try { sessionStorage.setItem('fc_mes', mes); } catch { /* ignore */ }
+}
 
 function lerLS(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function gravarLS(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* ignore */ } }
@@ -331,7 +339,7 @@ function desenhar(nome, canvas, config) {
   box.querySelector('.vazio')?.remove();
   if (!config) {
     canvas.classList.add('hidden');
-    box.insertAdjacentHTML('beforeend', '<p class="vazio">Nenhum gasto neste período.</p>');
+    box.insertAdjacentHTML('beforeend', '<p class="vazio">Nenhum gasto neste mês.<br><small>Use ‹ › ou toque no nome do mês para ver outros meses.</small></p>');
     return;
   }
   canvas.classList.remove('hidden');
@@ -364,7 +372,7 @@ async function renderLista() {
   else if (filtro === '__entrada') itens = dados.entradas;
   else if (filtro) itens = itens.filter((g) => g.tipo === filtro);
   itens = filtrarVisao(itens).sort((a, b) => b.data.localeCompare(a.data) || (a.natureza === 'entrada' ? -1 : 1));
-  if (!itens.length) { ul.innerHTML = '<li class="vazio">Nenhum lançamento encontrado.<br>Toque em ＋ para registrar.</li>'; return; }
+  if (!itens.length) { ul.innerHTML = '<li class="vazio">Nenhum lançamento neste mês.<br>Use ‹ › ou toque no nome do mês para ver outros meses.</li>'; return; }
   const sinal = (g) => (g.natureza === 'entrada' ? 1 : -1);
   let html = '';
   let diaAtual = '';
@@ -468,7 +476,7 @@ async function salvarGasto(ev) {
     $('#dlg-gasto').close();
     toast(`${entrada ? 'Entrada' : 'Gasto'} ${body.id ? 'atualizad' : 'registrad'}${entrada ? 'a' : 'o'} ✔`);
     state.cache = {};
-    state.mes = body.data.slice(0, 7);
+    mudarMes(body.data.slice(0, 7));
     atualizarView();
   } catch (e) {
     $('#gasto-erro').textContent = e.message;
@@ -668,13 +676,14 @@ async function salvarImportados() {
         .map(({ data, valor, tipo, descricao, origem }) => ({ data, valor, tipo, descricao, origem, compartilhado: comp[natureza] }));
       if (itens.length) await api(ENDPOINT[natureza], { method: 'POST', body: { itens } });
     }
-    toast(`${sel.length} lançamentos importados ✔`);
+    const mesesImp = [...new Set(sel.map((t) => t.data.slice(0, 7)))].sort();
+    toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')} ✔`);
     state.importados = [];
     state.cache = {};
     $('#import-revisao').classList.add('hidden');
     $('#import-status').textContent = '';
     $('#input-pdf').value = '';
-    state.mes = sel.map((t) => t.data).sort().pop().slice(0, 7);
+    mudarMes(mesesImp[mesesImp.length - 1]);
     irPara('inicio');
   } catch (e) { toast(e.message); } finally { btn.disabled = false; carregando(false); }
 }
@@ -928,7 +937,17 @@ function ligarEventos() {
   $('#fab').addEventListener('click', () => abrirGasto());
   $('#btn-nova-entrada').addEventListener('click', () => abrirGasto(null, 'entrada'));
   $('#btn-sair').addEventListener('click', () => { if (confirm('Sair do aplicativo?')) sair(); });
-  $$('[data-mes]').forEach((b) => b.addEventListener('click', () => { state.mes = deslocarMes(state.mes, Number(b.dataset.mes)); atualizarView(); }));
+  $$('[data-mes]').forEach((b) => b.addEventListener('click', () => { mudarMes(deslocarMes(state.mes, Number(b.dataset.mes))); atualizarView(); }));
+  // Tocar no nome do mês abre um seletor para pular direto para qualquer mês
+  $$('.mes-nav .mes-label').forEach((el) => el.addEventListener('click', () => {
+    const inp = $('#inp-mes');
+    inp.value = state.mes;
+    try { inp.showPicker(); } catch {
+      const m = prompt('Ir para o mês (AAAA-MM):', state.mes);
+      if (m) { mudarMes(m.trim()); atualizarView(); }
+    }
+  }));
+  $('#inp-mes').addEventListener('change', (e) => { if (e.target.value) { mudarMes(e.target.value); atualizarView(); } });
   $$('[data-ano]').forEach((b) => b.addEventListener('click', () => { state.ano += Number(b.dataset.ano); state.metas = null; renderMetas(); }));
   $$('#filtro-visao button').forEach((b) => b.addEventListener('click', () => {
     state.visao = b.dataset.v;
