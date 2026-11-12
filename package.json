@@ -1,0 +1,16 @@
+{
+  "name": "financas-casal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PWA de controle financeiro do casal (Google Sheets + Vercel)",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "vercel dev",
+    "check": "node --check lib/*.js api/*.js public/app.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "google-auth-library": "^11.3.4"
+  }
+}

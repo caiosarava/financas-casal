@@ -1,0 +1,104 @@
+# 💑 Finanças do Casal
+
+PWA (web app instalável no Android) para o casal registrar gastos, acompanhar o mês num dashboard e guardar dinheiro para as metas do ano. Os dados ficam numa **planilha Google Sheets** no Drive do Caio.
+
+- **Usuários:** apenas `caio.sarava@gmail.com` e `thianedepra@gmail.com` (login com Google).
+- **Hospedagem:** Vercel, com deploy automático a partir do GitHub.
+- **Stack:** HTML + CSS + JavaScript puro (sem build) no `public/`, funções serverless Node em `api/`.
+
+## Funcionalidades
+
+| Tela | O que faz |
+|---|---|
+| **Início** | Total do mês (comparado ao mês anterior), gastos por pessoa, gráfico por tipo, gráfico por pessoa × tipo, evolução acumulada no mês e resumo das metas. Filtros **Tudo / Casal / Meus** e navegação entre meses. Tocar num tipo abre a lista filtrada. |
+| **＋ (botão flutuante)** | Registrar gasto: valor, tipo (atalhos para Mercado, Farmácia, Padaria e iFood + outros tipos), data, descrição e **quem pode ver**: 👫 Casal (compartilhado) ou 🔒 Só eu. |
+| **Gastos** | Lista do mês agrupada por dia, com filtro por tipo. Toque num gasto seu para editar/excluir. |
+| **Metas** | Meta anual do **casal** e meta **individual**. Botão **＋ Guardar** registra cada valor guardado; a barra mostra o progresso e quanto falta por mês até dezembro. Metas individuais só aparecem para o dono. |
+| **Importar** | Upload de PDF de extrato bancário ou fatura do cartão. A IA (Claude) lê o documento, extrai os gastos e identifica o tipo. Você revisa, ajusta, desmarca duplicados e salva. Sem chave de IA, há um leitor local (heurístico) de reserva. |
+
+### Regras de visibilidade
+- Gasto **compartilhado**: os dois veem e entra nos gráficos do casal.
+- Gasto **só eu**: aparece apenas para quem registrou.
+- Só quem registrou pode editar ou excluir o gasto.
+
+## Estrutura
+
+```
+public/            → front-end estático (PWA)
+  index.html, styles.css, app.js, sw.js, manifest.webmanifest, icons/, vendor/chart.umd.min.js
+api/               → funções serverless da Vercel
+  config.js        → configurações públicas (client id do Google, categorias)
+  auth.js          → login Google → token de sessão (30 dias)
+  gastos.js        → listar / criar (1 ou vários) / editar / excluir gastos
+  metas.js         → metas anuais e valores guardados
+  importar.js      → leitura do PDF com o Claude
+lib/               → autenticação, acesso ao Sheets, categorias
+```
+
+A planilha recebe automaticamente 3 abas na primeira utilização: **Gastos**, **Metas** e **Aportes**.
+
+---
+
+## Configuração (passo a passo)
+
+### 1. Planilha
+1. Entre no Google Drive com **caio.sarava@gmail.com** e crie uma planilha em branco, ex.: *Finanças do Casal*.
+2. Copie o **ID** da URL: `https://docs.google.com/spreadsheets/d/`**`ESTE_TRECHO`**`/edit`.
+
+### 2. Projeto no Google Cloud
+1. Acesse <https://console.cloud.google.com/>, crie um projeto (ex.: `financas-casal`).
+2. **APIs e serviços → Biblioteca** → ative a **Google Sheets API**.
+
+### 3. Conta de serviço (o app usa para ler/gravar na planilha)
+1. **APIs e serviços → Credenciais → Criar credenciais → Conta de serviço**. Dê um nome e conclua.
+2. Abra a conta criada → aba **Chaves → Adicionar chave → JSON**. Um arquivo será baixado.
+3. Do JSON, você vai usar `client_email` e `private_key`.
+4. Na planilha, clique em **Compartilhar** e adicione o `client_email` como **Editor**.
+
+> A planilha continua sendo do Caio; a conta de serviço é apenas uma "editora" usada pelo servidor.
+
+### 4. Login com Google (OAuth Client ID)
+1. **APIs e serviços → Tela de consentimento OAuth**: tipo *Externo*, preencha nome do app e e-mail. Em **Usuários de teste**, adicione os dois e-mails (ou publique o app).
+2. **Credenciais → Criar credenciais → ID do cliente OAuth → Aplicativo da Web**.
+3. Em **Origens JavaScript autorizadas**, adicione a URL da Vercel (ex.: `https://financas-casal.vercel.app`) e, para testes locais, `http://localhost:3000`.
+4. Copie o **ID do cliente**.
+
+### 5. (Opcional, recomendado) Chave da API do Claude
+Para a leitura inteligente de PDFs, crie uma chave em <https://console.anthropic.com/> (*API Keys*). Sem ela, o app usa o leitor local, que funciona melhor com extratos simples.
+
+### 6. Deploy na Vercel
+1. Em <https://vercel.com/new>, importe o repositório `caiosarava/financas-casal` (Framework: **Other**; não há build).
+2. Em **Settings → Environment Variables**, cadastre:
+
+| Variável | Valor |
+|---|---|
+| `GOOGLE_CLIENT_ID` | ID do cliente OAuth (passo 4) |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | `client_email` do JSON |
+| `GOOGLE_PRIVATE_KEY` | `private_key` do JSON (cole inteiro, incluindo `-----BEGIN...`) |
+| `SHEET_ID` | ID da planilha (passo 1) |
+| `SESSION_SECRET` | texto aleatório longo (ex.: resultado de `openssl rand -hex 32`) |
+| `ALLOWED_EMAILS` | `caio.sarava@gmail.com,thianedepra@gmail.com` |
+| `USER_NAMES` | `caio.sarava@gmail.com:Caio,thianedepra@gmail.com:Thiane` |
+| `ANTHROPIC_API_KEY` | (opcional) chave da API do Claude |
+
+3. Faça o deploy (ou **Redeploy** após cadastrar as variáveis).
+4. Volte ao passo 4 e confira se a URL final da Vercel está nas origens autorizadas.
+
+### 7. Instalar no Android
+Abra a URL no **Chrome** → menu ⋮ → **Instalar app** (ou "Adicionar à tela inicial"). Pressionar e segurar o ícone mostra o atalho **Registrar gasto**.
+
+---
+
+## Desenvolvimento local
+
+```bash
+npm install
+cp .env.example .env.local   # preencha os valores
+npx vercel dev               # http://localhost:3000
+```
+
+## Observações
+- **Tamanho do PDF:** até ~3 MB por arquivo (limite de requisição da Vercel). Para arquivos maiores, divida o PDF.
+- **Duplicados:** na importação, gastos com mesma data e valor já registrados por você vêm desmarcados e sinalizados.
+- **Categorias:** definidas em `lib/categorias.js` e `public/app.js` (mantenha as duas listas iguais).
+- **Privacidade:** o servidor filtra os gastos "só eu" antes de enviar ao app; a planilha em si contém todos os registros.

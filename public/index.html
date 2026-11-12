@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Finanças do Casal</title>
+  <meta name="description" content="Controle financeiro compartilhado do casal">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="/vendor/chart.umd.min.js" defer></script>
+</head>
+<body>
+  <!-- ===== Login ===== -->
+  <section id="tela-login" class="login hidden">
+    <div class="login-card">
+      <img src="/icons/icon.svg" alt="" width="72" height="72">
+      <h1>Finanças do Casal</h1>
+      <p>Registrem os gastos, acompanhem o mês e guardem juntos para as metas do ano.</p>
+      <div id="google-btn"></div>
+      <p id="login-erro" class="erro"></p>
+    </div>
+  </section>
+
+  <!-- ===== App ===== -->
+  <div id="app" class="hidden">
+    <header class="topo">
+      <div>
+        <small id="saudacao">Olá</small>
+        <h2 id="titulo-tela">Início</h2>
+      </div>
+      <button id="btn-sair" class="btn-sair" title="Sair">Sair</button>
+    </header>
+
+    <main>
+      <!-- Dashboard -->
+      <section id="view-inicio" class="view">
+        <div class="filtros">
+          <div class="mes-nav">
+            <button class="icon-btn" data-mes="-1" aria-label="Mês anterior">‹</button>
+            <span id="mes-label"></span>
+            <button class="icon-btn" data-mes="1" aria-label="Próximo mês">›</button>
+          </div>
+          <div class="seg" id="filtro-visao" role="tablist">
+            <button data-v="todos" class="on">Tudo</button>
+            <button data-v="casal">Casal</button>
+            <button data-v="meus">Meus</button>
+          </div>
+        </div>
+
+        <div class="cards-resumo">
+          <div class="card destaque">
+            <small>Total do mês</small>
+            <strong id="total-mes">R$ 0,00</strong>
+            <span id="comparativo" class="sub"></span>
+          </div>
+          <div class="card" id="cards-pessoas"></div>
+        </div>
+
+        <div class="card">
+          <h3>Gastos por tipo</h3>
+          <div class="chart-box"><canvas id="chart-tipo"></canvas></div>
+          <ul id="legenda-tipo" class="legenda"></ul>
+        </div>
+
+        <div class="card">
+          <h3>Por pessoa e tipo</h3>
+          <div class="chart-box alto"><canvas id="chart-pessoa"></canvas></div>
+        </div>
+
+        <div class="card">
+          <h3>Evolução no mês</h3>
+          <div class="chart-box"><canvas id="chart-dia"></canvas></div>
+        </div>
+
+        <div class="card" id="card-metas-mini"></div>
+      </section>
+
+      <!-- Lista de gastos -->
+      <section id="view-gastos" class="view hidden">
+        <div class="filtros">
+          <div class="mes-nav">
+            <button class="icon-btn" data-mes="-1" aria-label="Mês anterior">‹</button>
+            <span class="mes-label-2"></span>
+            <button class="icon-btn" data-mes="1" aria-label="Próximo mês">›</button>
+          </div>
+          <select id="filtro-tipo" aria-label="Filtrar por tipo"><option value="">Todos os tipos</option></select>
+        </div>
+        <ul id="lista-gastos" class="lista"></ul>
+      </section>
+
+      <!-- Metas -->
+      <section id="view-metas" class="view hidden">
+        <div class="mes-nav ano-nav">
+          <button class="icon-btn" data-ano="-1" aria-label="Ano anterior">‹</button>
+          <span id="ano-label"></span>
+          <button class="icon-btn" data-ano="1" aria-label="Próximo ano">›</button>
+        </div>
+        <div id="metas-conteudo"></div>
+      </section>
+
+      <!-- Importar -->
+      <section id="view-importar" class="view hidden">
+        <div class="card">
+          <h3>Importar extrato ou fatura (PDF)</h3>
+          <p class="sub">Envie o PDF do extrato bancário ou da fatura do cartão. Os gastos são lidos e classificados automaticamente — você revisa antes de salvar.</p>
+          <label class="upload">
+            <input type="file" id="input-pdf" accept="application/pdf">
+            <span>📄 Escolher PDF</span>
+          </label>
+          <p id="import-status" class="sub"></p>
+        </div>
+        <div id="import-revisao" class="hidden">
+          <div class="card">
+            <div class="linha-entre">
+              <h3 id="import-titulo">Revise os gastos</h3>
+              <label class="check"><input type="checkbox" id="import-todos" checked> todos</label>
+            </div>
+            <label class="check"><input type="checkbox" id="import-compartilhar" checked> Compartilhar todos com o casal</label>
+            <ul id="import-lista" class="lista import"></ul>
+            <button id="btn-salvar-import" class="btn primario largo">Salvar selecionados</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <button id="fab" class="fab" aria-label="Registrar gasto">＋</button>
+
+    <nav class="nav">
+      <button data-view="inicio" class="on"><span>📊</span>Início</button>
+      <button data-view="gastos"><span>🧾</span>Gastos</button>
+      <button data-view="metas"><span>🎯</span>Metas</button>
+      <button data-view="importar"><span>📥</span>Importar</button>
+    </nav>
+  </div>
+
+  <!-- ===== Modal: gasto ===== -->
+  <dialog id="dlg-gasto" class="sheet">
+    <form id="form-gasto" method="dialog">
+      <h3 id="dlg-gasto-titulo">Novo gasto</h3>
+      <input type="hidden" name="id">
+      <label>Valor (R$)
+        <input name="valor" inputmode="decimal" placeholder="0,00" required autocomplete="off">
+      </label>
+      <div class="tipos" id="tipos-rapidos"></div>
+      <label>Tipo
+        <select name="tipo" id="sel-tipo"></select>
+      </label>
+      <label>Data
+        <input type="date" name="data" required>
+      </label>
+      <label>Descrição (opcional)
+        <input name="descricao" maxlength="200" placeholder="Ex.: compra da semana">
+      </label>
+      <fieldset class="visibilidade">
+        <legend>Quem pode ver?</legend>
+        <label class="radio"><input type="radio" name="compartilhado" value="SIM" checked> 👫 Casal (compartilhado)</label>
+        <label class="radio"><input type="radio" name="compartilhado" value="NAO"> 🔒 Só eu</label>
+      </fieldset>
+      <p class="erro" id="gasto-erro"></p>
+      <div class="acoes">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="button" class="btn perigo hidden" id="btn-excluir-gasto">Excluir</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ===== Modal: meta / aporte ===== -->
+  <dialog id="dlg-meta" class="sheet">
+    <form id="form-meta" method="dialog">
+      <h3 id="dlg-meta-titulo"></h3>
+      <input type="hidden" name="acao">
+      <input type="hidden" name="escopo">
+      <label>Valor (R$)
+        <input name="valor" inputmode="decimal" placeholder="0,00" required autocomplete="off">
+      </label>
+      <label class="so-aporte">Data
+        <input type="date" name="data">
+      </label>
+      <label class="so-aporte">Observação (opcional)
+        <input name="obs" maxlength="200" placeholder="Ex.: 13º salário">
+      </label>
+      <p class="erro" id="meta-erro"></p>
+      <div class="acoes">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="carregando" class="carregando hidden"><div class="spinner"></div></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
