@@ -4,7 +4,8 @@
 const CATS = {
   'Mercado': '🛒', 'Farmácia': '💊', 'Padaria': '🥖', 'iFood': '🛵', 'Restaurante': '🍽️',
   'Transporte': '🚗', 'Combustível': '⛽', 'Contas da casa': '🏠', 'Saúde': '🩺',
-  'Lazer': '🎉', 'Compras': '🛍️', 'Assinaturas': '📺', 'Outros': '📦',
+  'Lazer': '🎉', 'Compras': '🛍️', 'Assinaturas': '📺', 'Educação': '🎓', 'Impostos e taxas': '🧾',
+  'Seguros': '🛡️', 'Tarifas e juros': '🏦', 'Transferências': '💸', 'Outros': '📦',
 };
 const CATS_E = {
   'Salário': '💼', 'Pix recebido': '⚡', 'Depósito': '🏦', 'Transferência': '🔁', 'Rendimentos': '📈', 'Outras entradas': '💵',
@@ -827,34 +828,68 @@ async function salvarImportados() {
 }
 
 // ----- Leitura local (sem IA) -----
+// Ordem importa: a primeira regra que casar define o tipo. Regras específicas (estabelecimentos)
+// vêm antes das genéricas (boleto, Pix enviado), para que "Pix enviado - SUPERMERCADO X" vire Mercado.
 const PALAVRAS = [
-  ['iFood', /ifood|ifd\*|rappi|z[eé] delivery|aiqfome|james delivery/i],
-  ['Mercado', /mercad|supermerc|atacad|assa[ií]|carrefour|p[aã]o de a[cç]|zaffari|angeloni|hortifr|sacol[aã]o|a[cç]ougue|big ?bom|condor|savegnago|muffato|giassi|bistek|cooper|nacional|dia\s?%?brasil/i],
-  ['Farmácia', /farm|drog|raia|pacheco|panvel|pague ?menos|nissei|droga/i],
+  ['Tarifas e juros', /\biof\b|tarifa|cesta de servi|pacote de servi|anuidade|juros|encargo|multa|\bmora\b|cheque especial|limite da conta/i],
+  ['Impostos e taxas', /\bdarf\b|\bgps\b|\bdas\b|simples nacional|\bipva\b|\biptu\b|licenciamento|detran|tribut|receita federal|prefeitura|sefaz|\bgru\b|\bdae\b|imposto|taxa de lixo/i],
+  ['Seguros', /seguro|porto seguro|mapfre|allianz|tokio marine|sulamerica seg|\bhdi\b|liberty|youse|cartao protegido/i],
+  ['iFood', /ifood|ifd\*|rappi|z[eé] delivery|aiqfome|james delivery|delivery much/i],
   ['Padaria', /padar|panific|confeit|p[aã]es|bakery/i],
-  ['Restaurante', /restaur|lanch|pizz|burger|bar |churrasc|sushi|cafe|caf[eé]|outback|mc ?donald|bk |subway|habib/i],
-  ['Transporte', /uber|99 ?app|99pop|cabify|estacion|pedag|sem parar|conectcar|veloe|metr[oô]|[oô]nibus|bilhete|passagem/i],
-  ['Combustível', /posto|combust|shell|ipiranga|petrobras|br mania|ale /i],
-  ['Contas da casa', /energia|enel|cemig|copel|celesc|light|sabesp|[aá]gua|saneam|g[aá]s|comg[aá]s|internet|vivo|claro|tim |oi |net |condom|aluguel|iptu/i],
-  ['Assinaturas', /netflix|spotify|amazon prime|prime video|disney|hbo|max\.com|globoplay|youtube|apple\.com|icloud|google|deezer|paramount|chatgpt|openai|anthropic|claude/i],
-  ['Saúde', /hospital|cl[ií]nica|laborat|m[eé]dic|odonto|dent|unimed|amil|academia|smart ?fit|bluefit|psic/i],
-  ['Lazer', /cinema|cinemark|ingresso|sympla|hotel|airbnb|booking|decolar|latam|gol |azul |show|teatro|parque/i],
-  ['Compras', /amazon|mercado ?livre|mercadolivre|shopee|magalu|magazine|americanas|renner|riachuelo|c&a|zara|centauro|netshoes|shein|aliexpress|kabum|leroy|loja/i],
+  ['Farmácia', /farm[aá]c|drog|raia|pacheco|panvel|pague ?menos|nissei|venancio|sao joao farm/i],
+  ['Mercado', /mercad(?!o ?livre|o ?pago)|supermerc|atacad|assa[ií]|carrefour|p[aã]o de a[cç]|zaffari|angeloni|hortifr|sacol[aã]o|a[cç]ougue|big ?bom|condor|savegnago|muffato|giassi|bistek|\bnacional\b|\bdia\b|hiper|mercearia|sendas|guanabara|bretas|tenda atacado|makro|fort atacadista/i],
+  ['Restaurante', /restaur|lanch|pizz|burger|\bbar\b|churrasc|sushi|caf[eé]|outback|mc ?donald|\bbk\b|subway|habib|steakhouse|cantina|pastel|sorvet/i],
+  ['Combustível', /posto|combust|\bshell\b|ipiranga|petrobras|br mania|\bale\b|raizen|gasolina|etanol/i],
+  ['Transporte', /uber|\b99\b|99 ?app|99pop|cabify|estacion|pedag|sem parar|conectcar|veloe|metr[oô]|[oô]nibus|bilhete|passagem|\bbrt\b|zul digital|taxi/i],
+  ['Contas da casa', /energia|eletric|\bluz\b|cpfl|equatorial|neoenergia|coelba|celpe|cosern|energisa|\blight\b|\benel\b|cemig|copel|celesc|\brge\b|\bceee\b|elektro|\bedp\b|[aá]gua|saneam|sabesp|corsan|sanepar|casan|cedae|copasa|embasa|compesa|caesb|\bdmae\b|\bsaae\b|g[aá]s natural|comg[aá]s|ultragaz|liquig[aá]s|supergasbras|internet|telefon|\bvivo\b|\bclaro\b|\btim\b|\boi\b|\bnet\b|\bsky\b|condom|aluguel|imobili[aá]ria|quinto ?andar|loft/i],
+  ['Educação', /escola|col[eé]gio|faculdade|universidade|\bcurso|mensalidade escolar|udemy|alura|livraria|material escolar|idiomas|ingles|creche/i],
+  ['Saúde', /hospital|cl[ií]nica|laborat|m[eé]dic|odonto|dent|unimed|amil|hapvida|bradesco sa[uú]de|sulamerica sa[uú]de|academia|smart ?fit|bluefit|psic|fisioter|[oó]tica|exame/i],
+  ['Assinaturas', /netflix|spotify|amazon prime|prime video|disney|hbo|max\.com|globoplay|youtube|apple\.com|icloud|google (one|storage|play)|deezer|paramount|crunchyroll|viki|chatgpt|openai|anthropic|claude|microsoft|adobe|canva|dropbox|lovable|assinatura/i],
+  ['Lazer', /cinema|cinemark|ingresso|sympla|hotel|pousada|airbnb|booking|decolar|latam|\bgol\b|azul linhas|show|teatro|parque|turismo|viagem|hostel|resort/i],
+  ['Compras', /amazon|mercado ?livre|mercadolivre|shopee|magalu|magazine|americanas|renner|riachuelo|\bc&a\b|zara|centauro|netshoes|shein|aliexpress|kabum|leroy|\bloja|casas bahia|ponto frio|havan|decathlon|petz|cobasi|tok ?stok|ikea/i],
+  // Genéricas: contas pagas por boleto/débito automático sem estabelecimento reconhecido
+  ['Contas da casa', /boleto|pagamento (de )?contas?|pagto\.? (de )?contas?|pgto\.? (de )?contas?|conta de consumo|concession[aá]ria|conv[eê]nio|d[eé]bito autom[aá]tico/i],
+  ['Transferências', /pix enviado|pix para|envio de pix|transf(er[eê]ncia)? (enviada|para)|ted enviad|doc enviad|transfer[eê]ncia pix|\bted\b|\bdoc\b|\bpix\b/i],
+];
+// Categorias que o próprio banco informa (ex.: coluna "Categoria" da fatura do C6)
+const CATEGORIA_BANCO = [
+  ['Mercado', /supermerc|mercearia|hortifr|atacad/i],
+  ['Farmácia', /farm|drog/i],
+  ['Restaurante', /restaur|lanchon|\bbar\b|aliment|fast ?food|cafeteria/i],
+  ['Combustível', /posto|combust/i],
+  ['Transporte', /transporte|estacion|ped[aá]gio|t[aá]xi|mobilidade|companhia a[eé]rea/i],
+  ['Saúde', /sa[uú]de|hospital|m[eé]dic|odonto|cl[ií]nica|laborat|[oó]tica/i],
+  ['Lazer', /hotel|pousada|turismo|viage|lazer|entreten|cinema|hospedagem|ag[eê]ncia de viagem/i],
+  ['Educação', /educa|escola|curso|livrar/i],
+  ['Seguros', /seguro|associa[cç][aã]o/i],
+  ['Compras', /vestu|roupa|cal[cç]ad|departamento|loja|eletr[oô]|varejo|com[eé]rcio|e-?commerce|marketplace|m[oó]veis|decora|constru|pet ?shop|cosm[eé]t|perfum|joalh/i],
+  ['Assinaturas', /assinatura|streaming|digital|telecom|software/i],
+  ['Impostos e taxas', /imposto|governo|tribut|taxa/i],
 ];
 const PALAVRAS_E = [
-  ['Salário', /sal[aá]rio|folha|pagto sal|pr[oó][- ]?labore|proventos|vencimentos|adiant/i],
-  ['Rendimentos', /rendimento|juros|dividend|remunera[cç][aã]o/i],
+  ['Salário', /sal[aá]rio|folha|pagto\.? sal|pagamento de sal|cr[eé]dito de sal|pr[oó][- ]?labore|proventos|vencimentos|adiant/i],
+  ['Rendimentos', /rendimento|juros|dividend|remunera[cç][aã]o|cdb|cashback/i],
   ['Pix recebido', /pix/i],
-  ['Depósito', /dep[oó]sito|dep\.?\s|deposito/i],
-  ['Transferência', /ted|doc|transf/i],
+  ['Depósito', /dep[oó]sito|\bdep\.?\s/i],
+  ['Transferência', /\bted\b|\bdoc\b|transf/i],
 ];
-// Linhas que não são lançamentos (saldos, totais, pagamento da fatura, investimentos)
-const IGNORAR = /saldo|^total|total (da|de|geral)|pagamento (efetuado|recebido|da fatura)|pagto fatura|pagamento fatura|limite|aplica[cç][aã]o|resgate|invest/i;
-const PARECE_ENTRADA = /sal[aá]rio|recebid|dep[oó]sito|cr[eé]dito em conta|estorno|reembolso|rendimento|proventos|ted recebida|pix recebido|transfer[eê]ncia recebida/i;
+// Linhas que não são lançamentos: saldos, totais, pagamento da fatura do cartão (já entra pela própria fatura)
+// e movimentações de investimento.
+const IGNORAR = /^saldo|saldo (anterior|do dia|final|inicial|dispon|em conta)|^total|total (da|de|geral)|pagamento (de |da )?fatura|pagto\.? (de )?fatura|pgto\.? (de )?fatura|fatura (do )?cart[aã]o|inclus[aã]o de pagamento|pagamento recebido|^limite|aplica[cç][aã]o|resgate|invest|poupan[cç]a autom/i;
+const PARECE_ENTRADA = /sal[aá]rio|recebid|dep[oó]sito|cr[eé]dito em conta|estorno|reembolso|rendimento|proventos|ted recebida|pix recebido|transfer[eê]ncia recebida|cashback/i;
 
-function categorizar(desc, natureza = 'saida') {
-  for (const [cat, re] of natureza === 'entrada' ? PALAVRAS_E : PALAVRAS) if (re.test(desc)) return cat;
-  return natureza === 'entrada' ? 'Outras entradas' : 'Outros';
+function categorizar(desc, natureza = 'saida', categoriaBanco = '') {
+  if (natureza === 'entrada') {
+    for (const [cat, re] of PALAVRAS_E) if (re.test(desc)) return cat;
+    return 'Outras entradas';
+  }
+  // 1º estabelecimento/descrição; 2º categoria informada pelo banco; por último regras genéricas
+  const especificas = PALAVRAS.slice(0, -2);
+  const genericas = PALAVRAS.slice(-2);
+  for (const [cat, re] of especificas) if (re.test(desc)) return cat;
+  if (categoriaBanco) for (const [cat, re] of CATEGORIA_BANCO) if (re.test(categoriaBanco)) return cat;
+  for (const [cat, re] of genericas) if (re.test(desc)) return cat;
+  return 'Outros';
 }
 
 function carregarScript(src) {
@@ -953,67 +988,95 @@ function parseCsv(texto) {
   return linhas;
 }
 
-// Identifica colunas (data, descrição, valor ou débito/crédito) e monta os lançamentos
+// Identifica colunas (data, descrição, valor ou entrada/saída, categoria, parcela) e monta os lançamentos.
+// Reconhece exportações de bancos como C6 (conta: "Entrada(R$)"/"Saída(R$)"; cartão: "Categoria", "Parcela",
+// "Valor (em R$)"), Nubank, Itaú, Inter e similares.
 function interpretarTabela(linhas) {
-  const norm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  let iCab = linhas.findIndex((l) => l.some((c) => /^data|date/.test(norm(c))) && l.some((c) => /valor|debito|credito|amount|quantia|montante/.test(norm(c))));
-  let col = {};
+  const norm = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  const RE_DATA = /^(data|date|dt\b|dia\b)/;
+  const RE_MONTANTE = /valor|debito|credito|amount|quantia|montante|entrada|saida|r\$/;
+  let iCab = linhas.findIndex((l) => l.some((c) => RE_DATA.test(norm(c))) && l.some((c) => RE_MONTANTE.test(norm(c)) && !RE_DATA.test(norm(c))));
+  let col;
   if (iCab >= 0) {
     const cab = linhas[iCab].map(norm);
-    const achar = (re, exceto) => cab.findIndex((c) => re.test(c) && !(exceto && exceto.test(c)));
+    const todos = (re, exceto) => cab.map((c, i) => [c, i]).filter(([c]) => re.test(c) && !(exceto && exceto.test(c))).map(([, i]) => i);
+    const valores = todos(/valor|amount|quantia|montante|^r\$/, /saldo|dolar|us\$|usd|cotacao|^data/);
     col = {
-      data: achar(/^data|date/),
-      desc: achar(/descri|historico|lancamento|estabelecimento|title|titulo|memo|detalhe|identificacao/),
-      valor: achar(/valor|amount|quantia|montante/, /saldo|dolar|us\$|usd/),
-      debito: achar(/debito|saida/),
-      credito: achar(/credito|entrada/),
+      data: todos(RE_DATA)[0],
+      // Pode haver mais de uma coluna descritiva (C6: "Título" + "Descrição"): todas são combinadas
+      desc: todos(/descri|historico|lancamento|estabelecimento|title|titulo|memo|detalhe|identificacao|favorecido|beneficiario|destinatario|remetente|contraparte|origem|destino|^nome\b(?!.*cartao)/, /^data|valor|saldo|^dt\b/),
+      valor: valores.find((i) => /r\$|brl|reais/.test(cab[i])) ?? valores[0] ?? -1,
+      debito: todos(/debito|saida/, /^data|cartao|saldo/)[0] ?? -1,
+      credito: todos(/credito|entrada/, /^data|cartao|saldo/)[0] ?? -1,
+      categoria: todos(/^categoria|category|ramo|segmento/)[0] ?? -1,
+      parcela: todos(/parcela|installment/)[0] ?? -1,
+      sinal: todos(/^(tipo|natureza|d\/c|c\/d|debito\/credito|credito\/debito|operacao)$/)[0] ?? -1,
     };
   } else {
-    // Sem cabeçalho: deduz pelas primeiras linhas (data, texto mais longo, último número)
+    // Sem cabeçalho: deduz pelas linhas (data, texto mais longo, último número)
     iCab = -1;
     const exemplo = linhas.find((l) => l.some((c) => dataISO(c, 2000)) && l.some((c) => !Number.isNaN(numeroBR(c))));
     if (!exemplo) throw new Error('Não encontrei colunas de data e valor na planilha.');
-    col.data = exemplo.findIndex((c) => dataISO(c, 2000));
-    col.valor = exemplo.map((c, i) => [c, i]).filter(([c, i]) => i !== col.data && !Number.isNaN(numeroBR(c))).map(([, i]) => i)[0];
-    col.desc = exemplo.map((c, i) => [String(c), i]).filter(([, i]) => i !== col.data && i !== col.valor).sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? -1;
-    col.debito = -1;
-    col.credito = -1;
+    const data = exemplo.findIndex((c) => dataISO(c, 2000));
+    const valor = exemplo.map((c, i) => [c, i]).filter(([c, i]) => i !== data && !Number.isNaN(numeroBR(c))).map(([, i]) => i)[0];
+    const desc = exemplo.map((c, i) => [String(c), i]).filter(([, i]) => i !== data && i !== valor).sort((a, b) => b[0].length - a[0].length)[0]?.[1];
+    col = { data, valor, desc: desc === undefined ? [] : [desc], debito: -1, credito: -1, categoria: -1, parcela: -1, sinal: -1 };
   }
-  if (col.data < 0 || (col.valor < 0 && col.debito < 0 && col.credito < 0)) throw new Error('Não encontrei colunas de data e valor na planilha.');
+  if (col.data === undefined || col.data < 0 || (col.valor < 0 && col.debito < 0 && col.credito < 0)) {
+    throw new Error('Não encontrei colunas de data e valor na planilha.');
+  }
+  const temColunasES = col.debito >= 0 || col.credito >= 0;
 
   const anoAtual = new Date().getFullYear();
   const brutos = [];
   for (const l of linhas.slice(iCab + 1)) {
     const data = dataISO(l[col.data], anoAtual);
     if (!data) continue;
-    const descricao = String(col.desc >= 0 ? l[col.desc] : l.filter((_, i) => i !== col.data && i !== col.valor).join(' ')).replace(/\s+/g, ' ').trim();
-    let valor;
+    const partes = col.desc.map((i) => String(l[i] ?? '').replace(/\s+/g, ' ').trim()).filter((p) => p && p !== '-');
+    let descricao = [...new Set(partes)].join(' - ');
+    if (!descricao) descricao = l.filter((_, i) => i !== col.data && i !== col.valor && i !== col.debito && i !== col.credito).join(' ').replace(/\s+/g, ' ').trim();
+    const parcela = col.parcela >= 0 ? String(l[col.parcela] ?? '').trim() : '';
+    if (/^\d{1,2}\s*\/\s*\d{1,2}$/.test(parcela) && !/parcela/i.test(descricao)) descricao += ` - Parcela ${parcela.replace(/\s/g, '')}`;
+    const categoriaBanco = col.categoria >= 0 ? String(l[col.categoria] ?? '').trim() : '';
+
+    let valor = NaN;
     let natureza = null;
-    if (col.debito >= 0 || col.credito >= 0) {
+    if (temColunasES) {
       const deb = col.debito >= 0 ? numeroBR(l[col.debito]) : NaN;
       const cre = col.credito >= 0 ? numeroBR(l[col.credito]) : NaN;
       if (!Number.isNaN(deb) && deb !== 0) { valor = Math.abs(deb); natureza = 'saida'; }
       else if (!Number.isNaN(cre) && cre !== 0) { valor = Math.abs(cre); natureza = 'entrada'; }
-      else if (col.valor >= 0) valor = numeroBR(l[col.valor]);
-    } else valor = numeroBR(l[col.valor]);
+    }
+    if (Number.isNaN(valor) && col.valor >= 0) {
+      valor = numeroBR(l[col.valor]);
+      if (col.sinal >= 0) { // coluna "Tipo"/"D/C" diz se é crédito ou débito
+        const s = norm(l[col.sinal]);
+        if (/^(c|cred|credito|entrada|receita)/.test(s)) natureza = 'entrada';
+        else if (/^(d|deb|debito|saida|despesa)/.test(s)) natureza = 'saida';
+        if (natureza) valor = Math.abs(valor);
+      }
+    }
     if (!Number.isFinite(valor) || valor === 0 || IGNORAR.test(descricao)) continue;
-    brutos.push({ data, descricao: descricao.slice(0, 120), valor, natureza });
+    brutos.push({ data, descricao: descricao.slice(0, 150), valor, natureza, categoriaBanco });
   }
+
   // Coluna única de valor: o sinal define a natureza. Em extratos, negativos = gastos;
   // em faturas de cartão (maioria positiva), positivos = compras e negativos = estornos/créditos.
   const semNat = brutos.filter((b) => !b.natureza);
   const negativos = semNat.filter((b) => b.valor < 0).length;
-  const ehFatura = negativos < semNat.length / 2;
+  const ehFatura = semNat.length > 0 && negativos < semNat.length / 2;
   for (const b of semNat) {
     if (ehFatura) b.natureza = b.valor < 0 || PARECE_ENTRADA.test(b.descricao) ? 'entrada' : 'saida';
     else b.natureza = b.valor < 0 ? 'saida' : 'entrada';
   }
   const transacoes = brutos.map((b) => ({
     data: b.data, descricao: b.descricao, valor: Math.round(Math.abs(b.valor) * 100) / 100,
-    natureza: b.natureza, tipo: categorizar(b.descricao, b.natureza),
+    natureza: b.natureza, tipo: categorizar(b.descricao, b.natureza, b.categoriaBanco),
   }));
-  const tipoDocumento = semNat.length && ehFatura ? 'fatura_cartao' : 'extrato_bancario';
-  return { banco: '', tipoDocumento, vencimento: '', transacoes, metodo: 'local' };
+  // É fatura quando não há colunas de entrada/saída e os valores são majoritariamente positivos,
+  // ou quando há colunas típicas de cartão (parcela/categoria do banco)
+  const fatura = !temColunasES && (ehFatura || col.parcela >= 0);
+  return { banco: '', tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento: '', transacoes, metodo: 'local' };
 }
 
 async function lerPdfLocal(file) {

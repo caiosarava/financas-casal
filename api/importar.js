@@ -37,25 +37,35 @@ const SYSTEM = `Você extrai lançamentos de extratos bancários e faturas de ca
 O documento pode vir como PDF ou como texto de uma planilha (CSV/XLS) com colunas separadas por " | ".
 
 Para cada lançamento, defina "natureza":
-- "saida" (gasto): compras, débitos, Pix/TED enviados, boletos de contas, assinaturas, tarifas, saques.
+- "saida" (gasto): compras, débitos, Pix/TED enviados, PAGAMENTOS DE CONTAS E BOLETOS (luz, água, gás, internet,
+  telefone, condomínio, aluguel, escola, seguros, tributos), débitos automáticos, assinaturas, tarifas, IOF, juros, saques.
 - "entrada": salários, depósitos, Pix recebidos, TED/DOC/transferências recebidas, rendimentos, reembolsos e estornos.
 
-NÃO inclua: saldo anterior/atual, totais e subtotais, limites, pagamento da própria fatura do cartão
-(nem como saída no extrato, nem como crédito na fatura), aplicações e resgates de investimento.
+NÃO inclua: saldo anterior/atual/do dia, totais e subtotais, limites, aplicações e resgates de investimento,
+e o pagamento da própria fatura do cartão de crédito (no extrato: "Pagamento de fatura"; na fatura: "Inclusão de pagamento",
+"Pagamento recebido") — as compras do cartão entram pela própria fatura. Boletos de outras contas NÃO são pagamento de fatura: inclua-os.
 
 Regras gerais:
 - Compras parceladas: registre só a parcela cobrada neste documento; acrescente "(parcela X/Y)" à descrição.
 - Datas sem ano: deduza o ano pelo período do documento (fatura de janeiro com compra em dezembro = ano anterior). Formato AAAA-MM-DD.
 - Valores sempre positivos, em reais, com ponto decimal. Em planilhas, sinal negativo ou colunas "Débito"/"Crédito" indicam a natureza;
   em faturas de cartão, valores positivos costumam ser compras e negativos, pagamentos/estornos.
-- Descrição: o estabelecimento ou a contraparte, limpo e legível.
+- Descrição: o estabelecimento ou a contraparte, limpo e legível. Em planilhas com mais de uma coluna descritiva
+  (ex.: C6 "Título" + "Descrição"), combine-as, ex.: "Pagamento de boleto - CPFL Paulista".
+- Planilhas: colunas "Entrada"/"Crédito" = entrada e "Saída"/"Débito" = saída; ignore colunas de saldo, cotação e valores em US$
+  (use o valor em R$). Se houver coluna "Parcela" (ex.: 2/4), acrescente "(parcela 2/4)" à descrição. Se o banco informar uma
+  coluna "Categoria", use-a como pista para a categoria.
 
 Categorias de SAÍDA:
   Mercado (supermercados, atacarejos, hortifruti, açougue), Farmácia (drogarias), Padaria (padarias, confeitarias, cafeterias de bairro),
   iFood (iFood, Rappi, Zé Delivery e apps de entrega de comida), Restaurante (restaurantes, bares, lanchonetes presenciais),
   Transporte (Uber, 99, ônibus, metrô, estacionamento, pedágio), Combustível (postos), Contas da casa (luz, água, gás, internet, telefone, condomínio, aluguel, IPTU),
   Saúde (médicos, exames, planos, dentista, academia), Lazer (cinema, viagens, hotéis, eventos), Compras (lojas, e-commerce, vestuário, eletrônicos),
-  Assinaturas (streaming, softwares, serviços recorrentes), Outros (tarifas, Pix para pessoas e o que não se encaixar).
+  Assinaturas (streaming, softwares, serviços recorrentes), Educação (escola, faculdade, cursos, material escolar),
+  Impostos e taxas (DARF, DAS, IPVA, IPTU, licenciamento, taxas públicas), Seguros (auto, vida, residencial, cartão protegido),
+  Tarifas e juros (tarifas bancárias, cesta de serviços, anuidade, IOF, juros, multas),
+  Transferências (Pix/TED/DOC enviados a pessoas, quando não for um estabelecimento identificável), Outros (o que não se encaixar).
+  Boleto ou débito automático de concessionária (energia, água, gás, telefone, internet) ou condomínio/aluguel = Contas da casa.
 Categorias de ENTRADA:
   Salário (salário, pró-labore, folha, adiantamento salarial), Pix recebido, Depósito, Transferência (TED/DOC/transferências recebidas),
   Rendimentos (juros, rendimentos, dividendos), Outras entradas (reembolsos, estornos e o restante).
