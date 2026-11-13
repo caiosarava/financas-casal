@@ -15,6 +15,7 @@ PWA (web app instalável no Android) para o casal registrar gastos e entradas, a
 | **Registrar entrada** | No mesmo formulário (alternando 💸 Gasto / 💰 Entrada) ou pelo botão do dashboard: Salário, Pix recebido, Depósito, Transferência, Rendimentos e Outras entradas — também com opção casal / só eu. |
 | **Lançamentos** | Gastos e entradas do mês agrupados por dia (entradas em verde com "+"), com filtro por tipo, só gastos ou só entradas. Toque num lançamento seu para editar/excluir. |
 | **Metas** | Meta anual do **casal** e meta **individual**. Botão **＋ Guardar** registra cada valor guardado; a barra mostra o progresso e quanto falta por mês até dezembro. Metas individuais só aparecem para o dono. |
+| **✨ Análise com IA (Gemini)** | Card no Início que analisa o mês (respeitando o filtro Tudo/Casal/Meus) comparando com o mês anterior, e botão **"Analisar este extrato"** na revisão da importação. Traz resumo, alertas (ex.: parcelamento de fatura com juros, IOF, tarifas, cobranças possivelmente duplicadas), assinaturas recorrentes, parcelamentos em andamento e dicas de economia. |
 | **Importar** | Upload do extrato bancário ou fatura do cartão em **PDF, CSV, XLS, XLSX ou ODS**. A IA (Claude) extrai **gastos e entradas** e identifica o tipo de cada um. Você revisa, troca gasto ↔ entrada, ajusta tipos, desmarca duplicados e salva. Sem chave de IA, há leitores locais de reserva (para CSV/XLS eles reconhecem colunas como Data, Histórico/Descrição, Valor ou Débito/Crédito). |
 
 ### Regras de visibilidade (valem para gastos e entradas)
@@ -34,6 +35,7 @@ api/               → funções serverless da Vercel
   entradas.js      → o mesmo para entradas (salário, Pix, depósito, transferência…)
   metas.js         → metas anuais e valores guardados
   importar.js      → leitura do extrato (PDF ou planilha convertida em texto) com o Claude
+  analise.js       → análise financeira dos lançamentos com o Gemini
 lib/               → autenticação, acesso ao Sheets, categorias
 ```
 
@@ -68,6 +70,9 @@ A planilha usa as abas **Gastos**, **Entradas**, **Metas** e **Aportes** — as 
 ### 5. (Opcional, recomendado) Chave da API do Claude
 Para a leitura inteligente de PDFs, crie uma chave em <https://console.anthropic.com/> (*API Keys*). Sem ela, o app usa o leitor local, que funciona melhor com extratos simples.
 
+### 5b. (Opcional) Chave da API do Gemini
+Para a análise financeira com IA, crie uma chave gratuita no **Google AI Studio**: <https://aistudio.google.com/apikey> → *Create API key*. O modelo padrão é `gemini-3.8-flash`; para usar outro, defina `GEMINI_MODEL`.
+
 ### 6. Deploy na Vercel
 1. Em <https://vercel.com/new>, importe o repositório `caiosarava/financas-casal` (Framework: **Other**; não há build).
 2. Em **Settings → Environment Variables**, cadastre:
@@ -81,7 +86,9 @@ Para a leitura inteligente de PDFs, crie uma chave em <https://console.anthropic
 | `SESSION_SECRET` | texto aleatório longo (ex.: resultado de `openssl rand -hex 32`) |
 | `ALLOWED_EMAILS` | `caio.sarava@gmail.com,thianedepra@gmail.com` |
 | `USER_NAMES` | `caio.sarava@gmail.com:Caio,thianedepra@gmail.com:Thiane` |
-| `ANTHROPIC_API_KEY` | (opcional) chave da API do Claude |
+| `ANTHROPIC_API_KEY` | (opcional) chave da API do Claude — leitura dos extratos |
+| `GEMINI_API_KEY` | (opcional) chave da API do Gemini — análise financeira com IA |
+| `GEMINI_MODEL` | (opcional) modelo do Gemini; padrão `gemini-3.8-flash` |
 
 3. Faça o deploy (ou **Redeploy** após cadastrar as variáveis).
 4. Volte ao passo 4 e confira se a URL final da Vercel está nas origens autorizadas.
@@ -105,4 +112,5 @@ npx vercel dev               # http://localhost:3000
 - **Faturas de cartão → mês de vencimento:** quando o arquivo é uma fatura, todos os lançamentos são gravados na data de vencimento (detectada pela IA, pelo texto do PDF ou pelo nome do arquivo, ex.: `Nubank_2026-11-10.csv`; dá para ajustar na revisão). A data da compra fica na descrição, ex.: "Drogasil (compra 05/10)". Extratos bancários continuam com a data de cada movimentação.
 - **Duplicados:** na importação, lançamentos já registrados por você (mesmo valor e data) vêm desmarcados e sinalizados. No modo fatura, lançamentos importados antes na data da compra são **movidos** para o vencimento em vez de duplicados.
 - **Categorias:** gastos e entradas definidas em `lib/categorias.js` e `public/app.js` (mantenha as listas iguais).
+- **Análise com Gemini e privacidade:** a análise do mês é montada no servidor só com os lançamentos que você pode ver (os "só eu" do outro nunca são enviados); do mês anterior vão apenas os totais. Na análise da importação, vão os lançamentos do arquivo enviado. Os dados são processados pela API do Google conforme os termos do Gemini API.
 - **Privacidade:** o servidor filtra os gastos "só eu" antes de enviar ao app; a planilha em si contém todos os registros.

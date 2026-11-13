@@ -6,4 +6,5 @@ export default handler(async () => ({
   categorias: CATEGORIAS,
   categoriasEntrada: CATEGORIAS_ENTRADA,
   iaHabilitada: Boolean(process.env.ANTHROPIC_API_KEY),
+  geminiHabilitado: Boolean(process.env.GEMINI_API_KEY),
 }));

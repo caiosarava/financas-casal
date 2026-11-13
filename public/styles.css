@@ -188,4 +188,20 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .fatura-box small { display: block; margin-top: 4px; }
 .fatura-box .venc { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .9rem; }
 .fatura-box input[type=date] { padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); min-height: 40px; }
+/* Análise com IA */
+.btn-mini { border: 1px solid var(--border); background: var(--card); border-radius: 999px; width: 36px; height: 36px; cursor: pointer; font-size: 1rem; }
+.analise .resumo-ia { margin: 4px 0 12px; line-height: 1.5; }
+.analise h4 { font-size: .85rem; color: var(--muted); font-weight: 600; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .03em; }
+.destaques-ia { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.destaques-ia li { border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; padding: 8px 10px; font-size: .9rem; }
+.destaques-ia li b { display: block; margin-bottom: 2px; }
+.destaques-ia li.alerta { border-left-color: var(--danger); }
+.destaques-ia li.atencao { border-left-color: #d97706; }
+.destaques-ia li.positivo { border-left-color: var(--pos); }
+.destaques-ia li.info { border-left-color: var(--primary); }
+.tabela-ia { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.tabela-ia td { padding: 5px 0; border-top: 1px solid var(--border); }
+.tabela-ia td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 8px; }
+.dicas-ia { margin: 0; padding-left: 20px; font-size: .9rem; display: grid; gap: 6px; }
+.rodape-ia { display: block; margin-top: 12px; color: var(--muted); font-size: .75rem; }
 .inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

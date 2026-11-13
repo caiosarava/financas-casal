@@ -42,6 +42,7 @@ const state = {
   metas: null,
   charts: {},
   importados: [],
+  analises: {},       // cache de análises do Gemini por mês/visão
 };
 
 // Mês em exibição: lembrado durante a sessão (sobrevive a "atualizar a tela")
@@ -330,6 +331,7 @@ async function renderInicio() {
   } : null);
 
   renderMetasMini();
+  renderCardAnalise();
 }
 
 function desenhar(nome, canvas, config) {
@@ -475,6 +477,7 @@ async function salvarGasto(ev) {
     gravarLS(entrada ? 'fc_ultimo_comp_e' : 'fc_ultimo_comp', body.compartilhado ? 'SIM' : 'NAO');
     $('#dlg-gasto').close();
     toast(`${entrada ? 'Entrada' : 'Gasto'} ${body.id ? 'atualizad' : 'registrad'}${entrada ? 'a' : 'o'} ✔`);
+    state.analises = {};
     state.cache = {};
     mudarMes(body.data.slice(0, 7));
     atualizarView();
@@ -493,8 +496,78 @@ async function excluirGasto() {
     $('#dlg-gasto').close();
     toast('Excluído');
     state.cache = {};
+    state.analises = {};
     atualizarView();
   } catch (e) { $('#gasto-erro').textContent = e.message; }
+}
+
+// ---------- Análise com IA (Gemini) ----------
+const chaveAnalise = () => `${state.mes}|${state.visao}`;
+
+function renderCardAnalise() {
+  const card = $('#card-analise');
+  card.classList.toggle('hidden', !state.config?.geminiHabilitado);
+  if (!state.config?.geminiHabilitado) return;
+  const pronta = state.analises[chaveAnalise()];
+  $('#btn-analise-atualizar').classList.toggle('hidden', !pronta);
+  if (pronta) renderAnalise($('#analise-mes'), pronta);
+  else {
+    $('#analise-mes').innerHTML = `<p class="sub">O Gemini analisa os lançamentos de ${esc(mesLabel(state.mes).toLowerCase())} e aponta assinaturas, parcelamentos, tarifas, cobranças suspeitas e onde economizar.</p>
+      <button class="btn largo" id="btn-analise-mes">Gerar análise</button>`;
+    $('#btn-analise-mes').addEventListener('click', () => analisarMes());
+  }
+}
+
+async function analisarMes(forcar = false) {
+  const chave = chaveAnalise();
+  if (state.analises[chave] && !forcar) return renderCardAnalise();
+  const box = $('#analise-mes');
+  box.innerHTML = '<p class="sub">✨ Analisando os lançamentos com o Gemini…</p><div class="spinner" style="margin:8px auto"></div>';
+  try {
+    state.analises[chave] = await api('/api/analise', { method: 'POST', body: { modo: 'mes', mes: state.mes, visao: state.visao } });
+    if (chave === chaveAnalise()) renderCardAnalise();
+  } catch (e) {
+    box.innerHTML = `<p class="erro">${esc(e.message)}</p><button class="btn largo" id="btn-analise-mes">Tentar novamente</button>`;
+    $('#btn-analise-mes').addEventListener('click', () => analisarMes(true));
+  }
+}
+
+async function analisarImportacao() {
+  const itens = state.importados.filter((t) => t.sel);
+  const lista = itens.length ? itens : state.importados;
+  const box = $('#import-analise');
+  const btn = $('#btn-analise-import');
+  btn.disabled = true;
+  box.innerHTML = '<p class="sub">✨ Analisando o extrato com o Gemini…</p><div class="spinner" style="margin:8px auto"></div>';
+  try {
+    const dados = await api('/api/analise', {
+      method: 'POST',
+      body: {
+        modo: 'importacao',
+        ...state.importInfo,
+        transacoes: lista.map(({ data, descricao, valor, natureza, tipo }) => ({ data, descricao, valor, natureza, tipo })),
+      },
+    });
+    renderAnalise(box, dados);
+    btn.classList.add('hidden');
+  } catch (e) {
+    box.innerHTML = `<p class="erro">${esc(e.message)}</p>`;
+  } finally { btn.disabled = false; }
+}
+
+function renderAnalise(el, a) {
+  const icone = { alerta: '🚨', atencao: '⚠️', positivo: '✅', info: 'ℹ️' };
+  const somaRec = a.recorrentes.reduce((s, r) => s + r.valor, 0);
+  const somaParc = a.parcelamentos.reduce((s, p) => s + p.valor, 0);
+  el.innerHTML = `
+    <p class="resumo-ia">${esc(a.resumo)}</p>
+    ${a.destaques.length ? `<ul class="destaques-ia">${a.destaques.map((d) => `<li class="${d.nivel}"><b>${icone[d.nivel]} ${esc(d.titulo)}</b>${esc(d.detalhe)}</li>`).join('')}</ul>` : ''}
+    ${a.recorrentes.length ? `<h4>🔁 Recorrentes / assinaturas · ${fmt(somaRec)}</h4>
+      <table class="tabela-ia">${a.recorrentes.map((r) => `<tr><td>${esc(r.descricao)}</td><td>${fmt(r.valor)}</td></tr>`).join('')}</table>` : ''}
+    ${a.parcelamentos.length ? `<h4>💳 Parcelamentos · ${fmt(somaParc)} no período</h4>
+      <table class="tabela-ia">${a.parcelamentos.map((p) => `<tr><td>${esc(p.descricao)} <span class="sub">${esc(p.parcela)}</span></td><td>${fmt(p.valor)}</td></tr>`).join('')}</table>` : ''}
+    ${a.dicas.length ? `<h4>💡 Dicas</h4><ul class="dicas-ia">${a.dicas.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+    <small class="rodape-ia">Análise gerada por IA (${esc(a.modelo)}). Confira os valores antes de tomar decisões.</small>`;
 }
 
 // ---------- Metas ----------
@@ -617,6 +690,9 @@ async function importarPdf(file) {
     return;
   }
 
+  state.importInfo = { tipoDocumento: resultado.tipoDocumento, vencimento: resultado.vencimento, banco: resultado.banco, nomeArquivo: file.name };
+  $('#import-analise').innerHTML = '';
+  $('#btn-analise-import').classList.remove('hidden');
   state.importados = resultado.transacoes.map((t) => ({
     ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: pdf ? 'pdf' : 'planilha',
   }));
@@ -665,6 +741,7 @@ function renderImportados() {
       ${t.mover ? `<small class="sub desc" style="margin:0">↪️ Já importado em ${t.mover.data.split('-').reverse().join('/')} — será movido para o vencimento</small>` : ''}
     </div></li>`).join('');
   $('#import-titulo').textContent = `Revise os lançamentos (${state.importados.length})`;
+  $('#import-analise-box').classList.toggle('hidden', !state.config.geminiHabilitado);
   atualizarResumoImport();
   $('#import-revisao').classList.remove('hidden');
 }
@@ -738,6 +815,7 @@ async function salvarImportados() {
     toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')}${movidos ? ` (${movidos} movidos para o vencimento)` : ''} ✔`);
     state.importados = [];
     state.cache = {};
+    state.analises = {};
     $('#import-revisao').classList.add('hidden');
     $('#import-status').textContent = '';
     $('#input-pdf').value = '';
@@ -998,6 +1076,9 @@ function ligarEventos() {
   $$('.nav button').forEach((b) => b.addEventListener('click', () => irPara(b.dataset.view)));
   $('#fab').addEventListener('click', () => abrirGasto());
   $('#btn-nova-entrada').addEventListener('click', () => abrirGasto(null, 'entrada'));
+  $('#btn-analise-mes').addEventListener('click', () => analisarMes());
+  $('#btn-analise-atualizar').addEventListener('click', () => analisarMes(true));
+  $('#btn-analise-import').addEventListener('click', analisarImportacao);
   $('#btn-sair').addEventListener('click', () => { if (confirm('Sair do aplicativo?')) sair(); });
   $$('[data-mes]').forEach((b) => b.addEventListener('click', () => { mudarMes(deslocarMes(state.mes, Number(b.dataset.mes))); atualizarView(); }));
   // Tocar no nome do mês abre um seletor para pular direto para qualquer mês

@@ -70,6 +70,15 @@
           <div class="card" id="cards-pessoas"></div>
         </div>
 
+        <div class="card analise hidden" id="card-analise">
+          <div class="linha-entre">
+            <h3>✨ Análise do mês com IA</h3>
+            <button class="btn-mini hidden" id="btn-analise-atualizar" title="Gerar novamente">↻</button>
+          </div>
+          <div id="analise-mes"><p class="sub">O Gemini analisa os lançamentos do mês e aponta assinaturas, parcelamentos, tarifas, cobranças suspeitas e onde economizar.</p>
+            <button class="btn largo" id="btn-analise-mes">Gerar análise</button></div>
+        </div>
+
         <div class="card">
           <h3>Gastos por tipo</h3>
           <div class="chart-box"><canvas id="chart-tipo"></canvas></div>
@@ -140,6 +149,10 @@
               </div>
             </div>
             <p class="sub" id="import-resumo"></p>
+            <div class="analise hidden" id="import-analise-box">
+              <button class="btn largo" id="btn-analise-import">✨ Analisar este extrato com IA (Gemini)</button>
+              <div id="import-analise"></div>
+            </div>
             <ul id="import-lista" class="lista import"></ul>
             <button id="btn-salvar-import" class="btn primario largo">Salvar selecionados</button>
           </div>
