@@ -89,6 +89,7 @@ Para a análise financeira com IA, crie uma chave gratuita no **Google AI Studio
 | `ANTHROPIC_API_KEY` | (opcional) chave da API do Claude — leitura dos extratos |
 | `GEMINI_API_KEY` | (opcional) chave da API do Gemini — análise financeira com IA |
 | `GEMINI_MODEL` | (opcional) modelo do Gemini; padrão `gemini-3.8-flash` |
+| `GEMINI_MODELOS_RESERVA` | (opcional) modelos usados quando o principal está sobrecarregado; padrão `gemini-3.8-flash-lite` |
 
 3. Faça o deploy (ou **Redeploy** após cadastrar as variáveis).
 4. Volte ao passo 4 e confira se a URL final da Vercel está nas origens autorizadas.

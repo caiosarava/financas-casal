@@ -552,6 +552,7 @@ async function analisarImportacao() {
     btn.classList.add('hidden');
   } catch (e) {
     box.innerHTML = `<p class="erro">${esc(e.message)}</p>`;
+    btn.textContent = '↻ Tentar novamente';
   } finally { btn.disabled = false; }
 }
 
@@ -693,6 +694,7 @@ async function importarPdf(file) {
   state.importInfo = { tipoDocumento: resultado.tipoDocumento, vencimento: resultado.vencimento, banco: resultado.banco, nomeArquivo: file.name };
   $('#import-analise').innerHTML = '';
   $('#btn-analise-import').classList.remove('hidden');
+  $('#btn-analise-import').textContent = '✨ Analisar este extrato com IA (Gemini)';
   state.importados = resultado.transacoes.map((t) => ({
     ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: pdf ? 'pdf' : 'planilha',
   }));

@@ -10,6 +10,10 @@ import { handler, HttpError, requireUser, userNames } from '../lib/auth.js';
 import { readAll } from '../lib/sheets.js';
 
 const MODELO = () => process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+// Modelos de reserva usados quando o principal está sobrecarregado (503) ou sem cota (429)
+const RESERVAS = () => (process.env.GEMINI_MODELOS_RESERVA ?? 'gemini-3.8-flash-lite')
+  .split(',').map((m) => m.trim()).filter((m) => m && m !== MODELO());
+const TEMPORARIO = new Set([429, 500, 502, 503, 504]);
 const MAX_LINHAS = 1500;
 
 const SCHEMA = {
@@ -175,26 +179,49 @@ export default handler(async (req) => {
   }
   if (ctx.vazio) throw new HttpError(422, 'Não há lançamentos para analisar neste período.');
 
-  ai ||= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  // Repete automaticamente erros temporários (408/429/5xx): até 3 tentativas por modelo, com espera crescente
+  ai ||= new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: { retryOptions: { attempts: 3, initialDelay: 1.5, maxDelay: 8, httpStatusCodes: [408, ...TEMPORARIO] } },
+  });
   let resposta;
-  try {
-    resposta = await ai.models.generateContent({
-      model: MODELO(),
-      contents: ctx.texto,
-      config: {
-        systemInstruction: SISTEMA,
-        responseMimeType: 'application/json',
-        responseJsonSchema: SCHEMA,
-      },
-    });
-  } catch (err) {
-    if (err instanceof ApiError) {
-      if (err.status === 429) throw new HttpError(429, 'Limite de uso do Gemini atingido. Tente de novo em instantes.');
-      if (err.status === 400 || err.status === 401 || err.status === 403) throw new HttpError(500, `Gemini recusou a chamada (verifique GEMINI_API_KEY e GEMINI_MODEL): ${err.message}`);
-      if (err.status === 404) throw new HttpError(500, `Modelo "${MODELO()}" não encontrado. Ajuste GEMINI_MODEL.`);
-      throw new HttpError(502, `Falha no Gemini: ${err.message}`);
+  let modeloUsado;
+  let erroPrincipal;
+  for (const modelo of [MODELO(), ...RESERVAS()]) {
+    try {
+      resposta = await ai.models.generateContent({
+        model: modelo,
+        contents: ctx.texto,
+        config: {
+          systemInstruction: SISTEMA,
+          responseMimeType: 'application/json',
+          responseJsonSchema: SCHEMA,
+        },
+      });
+      modeloUsado = modelo;
+      break;
+    } catch (err) {
+      if (!(err instanceof ApiError)) throw err;
+      if (modelo === MODELO()) {
+        erroPrincipal = err;
+        // Só vale tentar outro modelo quando o problema é sobrecarga/cota, não chave ou pedido inválido
+        if (TEMPORARIO.has(err.status)) { console.warn(`Gemini ${modelo} indisponível (${err.status}); tentando reserva.`); continue; }
+      } else {
+        console.warn(`Gemini reserva ${modelo} falhou (${err.status}).`);
+        continue;
+      }
+      break;
     }
-    throw err;
+  }
+  if (!resposta) {
+    const err = erroPrincipal;
+    if (err.status === 503 || err.status === 500 || err.status === 502 || err.status === 504) {
+      throw new HttpError(503, 'O Gemini está sobrecarregado agora (alta demanda no Google). Já tentamos de novo automaticamente — aguarde alguns minutos e toque em "Tentar novamente".');
+    }
+    if (err.status === 429) throw new HttpError(429, 'Limite de uso do Gemini atingido. Aguarde um pouco e tente novamente.');
+    if (err.status === 400 || err.status === 401 || err.status === 403) throw new HttpError(500, `Gemini recusou a chamada (verifique GEMINI_API_KEY e GEMINI_MODEL): ${err.message}`);
+    if (err.status === 404) throw new HttpError(500, `Modelo "${MODELO()}" não encontrado. Ajuste GEMINI_MODEL.`);
+    throw new HttpError(502, `Falha no Gemini (${err.status}). Tente novamente.`);
   }
 
   let dados;
@@ -205,7 +232,7 @@ export default handler(async (req) => {
   }
   const lista = (v) => (Array.isArray(v) ? v : []);
   return {
-    modelo: MODELO(),
+    modelo: modeloUsado,
     resumo: String(dados.resumo || ''),
     destaques: lista(dados.destaques).slice(0, 6).map((d) => ({
       nivel: ['alerta', 'atencao', 'positivo', 'info'].includes(d.nivel) ? d.nivel : 'info',
