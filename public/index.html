@@ -108,6 +108,12 @@
           </div>
           <select id="filtro-tipo" aria-label="Filtrar por tipo"></select>
         </div>
+        <div class="seg seg-largo" id="filtro-dono" role="tablist" aria-label="Filtrar por visibilidade">
+          <button data-d="todos" class="on">Todos</button>
+          <button data-d="casal">👫 Casal</button>
+          <button data-d="privado">🔒 Só meus</button>
+        </div>
+        <p class="sub resumo-lista" id="resumo-lista"></p>
         <ul id="lista-gastos" class="lista"></ul>
       </section>
 
@@ -138,8 +144,11 @@
               <h3 id="import-titulo">Revise os lançamentos</h3>
               <label class="check"><input type="checkbox" id="import-todos" checked> todos</label>
             </div>
-            <label class="check"><input type="checkbox" id="import-compartilhar" checked> Compartilhar gastos com o casal</label>
-            <label class="check"><input type="checkbox" id="import-compartilhar-ent" checked> Compartilhar entradas com o casal</label>
+            <div class="vis-todos">
+              <span class="sub">Quem vê os selecionados:</span>
+              <button type="button" class="btn-chip" data-vis-todos="SIM">👫 Todos casal</button>
+              <button type="button" class="btn-chip" data-vis-todos="NAO">🔒 Todos só eu</button>
+            </div>
             <div class="fatura-box">
               <label class="check"><input type="checkbox" id="import-usar-venc"> 💳 Fatura de cartão: lançar no mês de vencimento</label>
               <div id="import-venc-campo" class="hidden">

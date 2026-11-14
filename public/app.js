@@ -43,6 +43,7 @@ const state = {
   metas: null,
   charts: {},
   importados: [],
+  filtroDono: lerLS('fc_filtro_dono') || 'todos', // Lançamentos: todos | casal | privado
   analises: {},       // cache de análises do Gemini por mês/visão
 };
 
@@ -374,8 +375,20 @@ async function renderLista() {
   if (filtro === '__saida') itens = dados.gastos;
   else if (filtro === '__entrada') itens = dados.entradas;
   else if (filtro) itens = itens.filter((g) => g.tipo === filtro);
-  itens = filtrarVisao(itens).sort((a, b) => b.data.localeCompare(a.data) || (a.natureza === 'entrada' ? -1 : 1));
-  if (!itens.length) { ul.innerHTML = '<li class="vazio">Nenhum lançamento neste mês.<br>Use ‹ › ou toque no nome do mês para ver outros meses.</li>'; return; }
+  // Filtro de visibilidade próprio da tela de Lançamentos
+  if (state.filtroDono === 'casal') itens = itens.filter((g) => g.compartilhado);
+  else if (state.filtroDono === 'privado') itens = itens.filter((g) => !g.compartilhado && g.meu);
+  $$('#filtro-dono button').forEach((b) => b.classList.toggle('on', b.dataset.d === state.filtroDono));
+  itens = itens.sort((a, b) => b.data.localeCompare(a.data) || (a.natureza === 'entrada' ? -1 : 1));
+  const soma = (n) => itens.filter((g) => g.natureza === n).reduce((s, g) => s + g.valor, 0);
+  $('#resumo-lista').textContent = itens.length
+    ? `${itens.length} lançamento${itens.length === 1 ? '' : 's'} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`
+    : '';
+  if (!itens.length) {
+    const motivo = state.filtroDono === 'casal' ? 'compartilhado com o casal' : state.filtroDono === 'privado' ? 'só seu (privado)' : '';
+    ul.innerHTML = `<li class="vazio">Nenhum lançamento ${motivo ? `${motivo} ` : ''}neste mês.<br>Use ‹ › ou toque no nome do mês para ver outros meses.</li>`;
+    return;
+  }
   const sinal = (g) => (g.natureza === 'entrada' ? 1 : -1);
   let html = '';
   let diaAtual = '';
@@ -709,8 +722,10 @@ async function importarPdf(file) {
   $('#import-analise').innerHTML = '';
   $('#btn-analise-import').classList.remove('hidden');
   $('#btn-analise-import').textContent = '✨ Analisar este extrato com IA (Gemini)';
+  const visPadrao = lerLS('fc_import_comp') !== 'NAO';
   state.importados = resultado.transacoes.map((t) => ({
     ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: pdf ? 'pdf' : 'planilha',
+    compartilhado: visPadrao, compManual: false,
   }));
 
   // Fatura de cartão: por padrão tudo vai para o mês de vencimento
@@ -742,7 +757,7 @@ async function importarPdf(file) {
 }
 
 function renderImportados() {
-  $('#import-lista').innerHTML = state.importados.map((t, i) => `<li data-i="${i}" class="${t.natureza === 'entrada' ? 'entrada' : ''}">
+  $('#import-lista').innerHTML = state.importados.map((t, i) => `<li data-i="${i}" class="${t.natureza === 'entrada' ? 'entrada' : ''} ${t.compartilhado ? '' : 'privado'}">
     <input type="checkbox" data-k="sel" ${t.sel ? 'checked' : ''} aria-label="Selecionar">
     <div class="campos">
       <input type="text" class="desc" data-k="descricao" value="${esc(t.descricao)}" aria-label="Descrição">
@@ -752,7 +767,11 @@ function renderImportados() {
         <option value="saida" ${t.natureza === 'saida' ? 'selected' : ''}>💸 Gasto</option>
         <option value="entrada" ${t.natureza === 'entrada' ? 'selected' : ''}>💰 Entrada</option>
       </select>
-      <select data-k="tipo" aria-label="Tipo">${opcoes(catsDe(t.natureza), t.tipo)}</select>
+      <select data-k="compartilhado" aria-label="Quem pode ver">
+        <option value="SIM" ${t.compartilhado ? 'selected' : ''}>👫 Casal</option>
+        <option value="NAO" ${t.compartilhado ? '' : 'selected'}>🔒 Só eu</option>
+      </select>
+      <select data-k="tipo" class="desc" aria-label="Tipo">${opcoes(catsDe(t.natureza), t.tipo)}</select>
       ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe lançamento com mesmo valor)</small>' : ''}
       ${t.mover ? `<small class="sub desc" style="margin:0">↪️ Já importado em ${t.mover.data.split('-').reverse().join('/')} — será movido para o vencimento</small>` : ''}
     </div></li>`).join('');
@@ -792,6 +811,7 @@ async function avaliarImportados() {
       const prefixo = t.descricao.slice(0, 12);
       if (achar(t, (x) => x.data === f.venc && (x.descricao || '').startsWith(prefixo))) t.dup = true;
       else t.mover = achar(t, (x) => x.data === t.data && x.origem !== 'manual') || null;
+      if (t.mover && !t.compManual) t.compartilhado = t.mover.compartilhado;
     } else if (achar(t, (x) => x.data === t.data)) t.dup = true;
     t.sel = !t.dup;
   }
@@ -800,7 +820,9 @@ async function avaliarImportados() {
 function atualizarResumoImport() {
   const sel = state.importados.filter((t) => t.sel);
   const soma = (n) => sel.filter((t) => t.natureza === n).reduce((s, t) => s + (t.valor || 0), 0);
-  $('#import-resumo').textContent = `Selecionados: ${sel.length} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`;
+  const privados = sel.filter((t) => !t.compartilhado).length;
+  $('#import-resumo').textContent = `Selecionados: ${sel.length} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`
+    + ` · 👫 ${sel.length - privados} casal · 🔒 ${privados} só eu`;
 }
 
 async function salvarImportados() {
@@ -809,7 +831,6 @@ async function salvarImportados() {
   if (sel.some((t) => !(t.valor > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(t.data))) { toast('Há lançamentos com valor ou data inválidos.'); return; }
   const f = faturaAtiva();
   if ($('#import-usar-venc').checked && !f.ativo) { toast('Informe a data de vencimento da fatura.'); return; }
-  const comp = { saida: $('#import-compartilhar').checked, entrada: $('#import-compartilhar-ent').checked };
   // No modo fatura, a data passa a ser o vencimento e a data da compra vai para a descrição
   const final = (t) => (f.ativo ? { ...t, data: f.venc, descricao: descricaoFatura(t) } : t);
   const btn = $('#btn-salvar-import');
@@ -820,9 +841,9 @@ async function salvarImportados() {
     for (const natureza of ['saida', 'entrada']) {
       const daNatureza = sel.filter((t) => t.natureza === natureza).map(final);
       const novos = daNatureza.filter((t) => !t.mover)
-        .map(({ data, valor, tipo, descricao, origem }) => ({ data, valor, tipo, descricao, origem, compartilhado: comp[natureza] }));
+        .map(({ data, valor, tipo, descricao, origem, compartilhado }) => ({ data, valor, tipo, descricao, origem, compartilhado }));
       const mover = daNatureza.filter((t) => t.mover)
-        .map(({ data, valor, tipo, descricao, mover: g }) => ({ id: g.id, data, valor, tipo, descricao, compartilhado: g.compartilhado }));
+        .map(({ data, valor, tipo, descricao, compartilhado, mover: g }) => ({ id: g.id, data, valor, tipo, descricao, compartilhado }));
       if (novos.length) await api(ENDPOINT[natureza], { method: 'POST', body: { itens: novos } });
       if (mover.length) await api(ENDPOINT[natureza], { method: 'PUT', body: { itens: mover } });
       movidos += mover.length;
@@ -1366,6 +1387,11 @@ function ligarEventos() {
     const k = e.target.dataset.k;
     if (k === 'sel') t.sel = e.target.checked;
     else if (k === 'valor') t.valor = parseValor(e.target.value);
+    else if (k === 'compartilhado') {
+      t.compartilhado = e.target.value === 'SIM';
+      t.compManual = true;
+      li.classList.toggle('privado', !t.compartilhado);
+    }
     else if (k === 'natureza') {
       t.natureza = e.target.value;
       t.tipo = categorizar(t.descricao, t.natureza);
@@ -1380,6 +1406,18 @@ function ligarEventos() {
     atualizarResumoImport();
   });
   $('#btn-salvar-import').addEventListener('click', salvarImportados);
+  $$('[data-vis-todos]').forEach((b) => b.addEventListener('click', () => {
+    const comp = b.dataset.visTodos === 'SIM';
+    gravarLS('fc_import_comp', b.dataset.visTodos);
+    state.importados.filter((t) => t.sel).forEach((t) => { t.compartilhado = comp; t.compManual = true; });
+    renderImportados();
+    toast(comp ? 'Selecionados: visíveis para o casal 👫' : 'Selecionados: só para você 🔒');
+  }));
+  $$('#filtro-dono button').forEach((b) => b.addEventListener('click', () => {
+    state.filtroDono = b.dataset.d;
+    gravarLS('fc_filtro_dono', state.filtroDono);
+    renderLista();
+  }));
   const reavaliar = async () => { await avaliarImportados(); renderImportados(); };
   $('#import-usar-venc').addEventListener('change', reavaliar);
   $('#import-venc').addEventListener('change', () => { $('#import-venc-aviso').textContent = ''; reavaliar(); });

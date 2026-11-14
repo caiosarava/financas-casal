@@ -100,7 +100,7 @@ select { background: var(--card); border: 1px solid var(--border); border-radius
 .lista .info small { color: var(--muted); }
 .lista .valor { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .lista .dia { color: var(--muted); font-size: .8rem; margin: 16px 4px 6px; }
-.badge { font-size: .7rem; padding: 2px 6px; border-radius: 6px; background: var(--primary-soft); color: var(--text); margin-left: 4px; }
+.badge { white-space: nowrap; font-size: .7rem; padding: 2px 6px; border-radius: 6px; background: var(--primary-soft); color: var(--text); margin-left: 4px; }
 
 .lista.import li { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .lista.import .campos { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -204,4 +204,12 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .tabela-ia td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 8px; }
 .dicas-ia { margin: 0; padding-left: 20px; font-size: .9rem; display: grid; gap: 6px; }
 .rodape-ia { display: block; margin-top: 12px; color: var(--muted); font-size: .75rem; }
+/* Visibilidade (casal / só eu) */
+.seg-largo { display: flex; width: 100%; }
+.seg-largo button { flex: 1; }
+.resumo-lista { margin: 8px 4px 0; }
+.vis-todos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 8px; }
+.btn-chip { border: 1px solid var(--border); background: var(--bg); border-radius: 999px; padding: 6px 12px; font-size: .85rem; cursor: pointer; min-height: 36px; }
+.lista.import select[data-k=compartilhado] { font-weight: 600; }
+.lista.import li.privado { box-shadow: inset 3px 0 0 var(--muted); }
 .inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
