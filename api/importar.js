@@ -45,6 +45,16 @@ NÃO inclua: saldo anterior/atual/do dia, totais e subtotais, limites, aplicaç�
 e o pagamento da própria fatura do cartão de crédito (no extrato: "Pagamento de fatura"; na fatura: "Inclusão de pagamento",
 "Pagamento recebido") — as compras do cartão entram pela própria fatura. Boletos de outras contas NÃO são pagamento de fatura: inclua-os.
 
+Layouts comuns (ex.: Santander, Itaú, Bradesco, Banco do Brasil):
+- Faturas podem listar os lançamentos em DUAS COLUNAS lado a lado e ter uma seção por cartão (titular e adicionais): inclua todas.
+- IGNORE seções de parcelas FUTURAS ("Compras parceladas - próximas faturas", "Lançamentos futuros", "Parcelas a vencer"):
+  só entram as parcelas cobradas nesta fatura. Ignore também resumo da fatura, pagamento mínimo, limites, tabelas de juros/CET,
+  opções de parcelamento da fatura e cotação do dólar.
+- Em faturas, valores negativos ou com "-" são créditos (estornos → entrada; pagamento da fatura → ignorar).
+- Em extratos, débitos podem aparecer com "-" no fim (ex.: 189,90-) e a data pode aparecer só na primeira movimentação do dia:
+  as linhas seguintes sem data pertencem ao mesmo dia. Ignore "Saldo anterior", "Saldo do dia" e a coluna de saldo.
+- Em compras internacionais, use o valor em R$ (não o valor em US$).
+
 Regras gerais:
 - Compras parceladas: registre só a parcela cobrada neste documento; acrescente "(parcela X/Y)" à descrição.
 - Datas sem ano: deduza o ano pelo período do documento (fatura de janeiro com compra em dezembro = ano anterior). Formato AAAA-MM-DD.

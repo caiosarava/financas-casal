@@ -675,15 +675,28 @@ async function importarPdf(file) {
         const body = pdf
           ? { pdf: await lerBase64(file) }
           : { texto: linhas.map((l) => l.map((c) => String(c).replace(/\|/g, '/')).join(' | ')).join('\n'), nome: file.name };
-        resultado = await api('/api/importar', { method: 'POST', body });
+        try {
+          resultado = await api('/api/importar', { method: 'POST', body });
+        } catch (e) {
+          // PDF que a IA não consegue abrir (senha, arquivo grande ou fora do padrão): envia o texto extraído aqui
+          if (!pdf || !(e.status === 400 || e.status === 413 || e.status === 422)) throw e;
+          status.textContent = '🔐 Extraindo o texto do PDF para a IA…';
+          carregando(false);
+          const texto = await textoDoPdf(file);
+          carregando(true);
+          status.textContent = '🤖 Lendo o arquivo com IA…';
+          resultado = await api('/api/importar', { method: 'POST', body: { texto, nome: file.name } });
+        }
         resultado.metodo = 'ia';
       } catch (e) {
         if (e.status === 501 || e.status === 413 || e.status >= 500) {
           status.textContent = `IA indisponível (${e.message}). Usando leitura local…`;
+          carregando(false);
           resultado = await local();
         } else throw e;
       }
     } else {
+      carregando(false); // o leitor local pode pedir a senha do PDF
       resultado = await local();
     }
   } catch (e) {
@@ -1079,61 +1092,183 @@ function interpretarTabela(linhas) {
   return { banco: '', tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento: '', transacoes, metodo: 'local' };
 }
 
-async function lerPdfLocal(file) {
+// ----- Leitura de PDF -----
+// Abre o PDF com o pdf.js (pedindo a senha, se houver) e devolve as linhas de cada página com a
+// posição horizontal de cada pedaço de texto. Linhas com dois lançamentos lado a lado (faturas em
+// duas colunas, como a do Santander) são divididas em linhas separadas.
+async function extrairPdf(file) {
   const pdfjs = await carregarPdfJs();
-  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
-  const linhas = [];
-  for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
+  const data = await file.arrayBuffer();
+  let doc;
+  let senha;
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      doc = await pdfjs.getDocument({ data: data.slice(0), password: senha }).promise;
+      break;
+    } catch (e) {
+      if (e?.name !== 'PasswordException' || tentativa >= 3) {
+        throw new Error(e?.name === 'PasswordException' ? 'Senha do PDF incorreta.' : `Não foi possível abrir o PDF (${e?.message || e}).`);
+      }
+      senha = prompt(tentativa === 0
+        ? 'Este PDF está protegido por senha. Digite a senha do arquivo (a mesma usada para abri-lo no computador):'
+        : 'Senha incorreta. Tente novamente:');
+      if (senha === null) throw new Error('Importação cancelada: o PDF precisa de senha.');
+    }
+  }
+  const RE_VALOR_ITEM = /^(-\s?)?(R\$\s?)?\d{1,3}(\.\d{3})*,\d{2}(\s?-|\s?[DC])?$/;
+  const RE_DATA_ITEM = /^(\d{2}[/.-]\d{2}([/.-]\d{2,4})?\b|\d{2} (jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b)/i;
+  const paginas = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
     const { items } = await page.getTextContent();
+    const itens = items.filter((it) => it.str.trim()).map((it) => ({
+      s: it.str.replace(/\s+/g, ' ').trim(), x: it.transform[4], y: it.transform[5], w: it.width || 0,
+    }));
+    // Agrupa por altura (tolerância de 3pt)
     const porY = new Map();
-    for (const it of items) {
-      if (!it.str.trim()) continue;
-      const y = Math.round(it.transform[5] / 3) * 3;
+    for (const it of itens) {
+      const y = Math.round(it.y / 3) * 3;
       if (!porY.has(y)) porY.set(y, []);
       porY.get(y).push(it);
     }
-    [...porY.entries()].sort((a, b) => b[0] - a[0]).forEach(([, its]) => {
-      linhas.push(its.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
-    });
+    const linhas = [];
+    for (const [, its] of [...porY.entries()].sort((a, b) => b[0] - a[0])) {
+      its.sort((a, b) => a.x - b.x);
+      // Divide quando aparece uma nova data depois de um valor (segunda coluna de lançamentos)
+      let seg = [];
+      for (const it of its) {
+        const anterior = seg[seg.length - 1];
+        const novaColuna = anterior && RE_DATA_ITEM.test(it.s) && seg.some((x) => RE_VALOR_ITEM.test(x.s)) && it.x - (anterior.x + anterior.w) > 4;
+        if (novaColuna) { linhas.push(seg); seg = []; }
+        seg.push(it);
+      }
+      if (seg.length) linhas.push(seg);
+    }
+    // Cabeçalhos de colunas (posição x) para saber se um valor é crédito, débito, saldo, R$ ou US$.
+    // Guarda todas as ocorrências: faturas em duas colunas repetem os cabeçalhos.
+    const centro = (it) => it.x + it.w / 2;
+    const colunas = [];
+    for (const it of itens) {
+      const s = it.s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (s.length > 24) continue;
+      let nome = null;
+      if (/^(creditos?|entradas?)\b/.test(s)) nome = 'credito';
+      else if (/^(debitos?|saidas?)\b/.test(s)) nome = 'debito';
+      else if (/^saldo\b/.test(s) && !/anterior/.test(s)) nome = 'saldo';
+      else if (/^(us\$|usd|dolar|valor em us)/.test(s)) nome = 'usd';
+      else if (/^(r\$|valor em r\$|valor \(r\$\)|reais)$/.test(s)) nome = 'brl';
+      if (nome) colunas.push({ nome, x: centro(it) });
+    }
+    paginas.push({ linhas, colunas });
   }
-  const texto = linhas.join('\n');
-  const anoDoc = Number((texto.match(/\b(20\d{2})\b/) || [])[1]) || new Date().getFullYear();
-  const reData = /\b(\d{2})[/.-](\d{2})(?:[/.-](\d{2,4}))?\b/;
-  const reValor = /(-\s?)?(?:R\$\s?)?(\d{1,3}(?:\.\d{3})*,\d{2})(\s?-|\s?[DC]\b)?/g;
-  const temSaldo = /saldo/i.test(texto);
-  const candidatos = [];
-  for (const linha of linhas) {
-    const md = linha.match(reData);
-    if (!md) continue;
-    const valores = [...linha.matchAll(reValor)];
-    if (!valores.length) continue;
-    const usado = valores.length > 1 && temSaldo ? valores[valores.length - 2] : valores[valores.length - 1]; // ignora coluna de saldo
-    const negativo = Boolean(usado[1] || /-|D/.test(usado[3] || ''));
-    const credito = /C/.test(usado[3] || '');
-    const valor = Number(usado[2].replace(/\./g, '').replace(',', '.'));
-    const descricao = linha.replace(md[0], '').replace(reValor, '').replace(/\s+/g, ' ').trim();
-    if (!valor || IGNORAR.test(descricao) || descricao.length < 2) continue;
-    const dia = Number(md[1]);
-    const mes = Number(md[2]);
-    if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue;
-    let ano = md[3] ? Number(md[3].length === 2 ? `20${md[3]}` : md[3]) : anoDoc;
-    if (!md[3] && mes > new Date().getMonth() + 1 && ano === new Date().getFullYear()) ano -= 1;
-    candidatos.push({
-      data: `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`,
-      descricao: descricao.slice(0, 120), valor, negativo, credito,
-    });
-  }
-  // Extratos: débitos costumam vir negativos (ou com "D"); se houver os dois sinais, positivos são entradas.
-  const temSinais = candidatos.some((c) => c.negativo) && candidatos.some((c) => !c.negativo);
-  const transacoes = candidatos.map((c) => {
-    const natureza = c.credito || (temSinais ? !c.negativo : PARECE_ENTRADA.test(c.descricao)) ? 'entrada' : 'saida';
-    return { data: c.data, descricao: c.descricao, valor: c.valor, natureza, tipo: categorizar(c.descricao, natureza) };
-  });
-  const fatura = /fatura|cart[aã]o de cr[eé]dito|limite (total|dispon)/i.test(texto);
+  const texto = paginas.flatMap((pg) => pg.linhas.map((l) => l.map((i) => i.s).join(' '))).join('\n');
+  return { paginas, texto };
+}
+
+async function lerPdfLocal(file) {
+  const { paginas, texto } = await extrairPdf(file);
+  const fatura = /fatura|limite (total|dispon)|pagamento m[ií]nimo|melhor data de compra/i.test(texto)
+    && !/extrato (de )?conta|conta corrente|saldo anterior/i.test(texto.slice(0, 1500));
   const mv = texto.match(/venc[a-z]*\D{0,25}(\d{2})[/.-](\d{2})[/.-](\d{2,4})/i);
   const vencimento = fatura && mv ? `${mv[3].length === 2 ? `20${mv[3]}` : mv[3]}-${mv[2]}-${mv[1]}` : '';
-  return { banco: '', tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento, transacoes, metodo: 'local' };
+  // Ano de referência para datas sem ano: vencimento da fatura ou a data completa mais recente do documento
+  const datasCompletas = [...texto.matchAll(/\b(\d{2})[/.-](\d{2})[/.-](20\d{2})\b/g)].map((m) => `${m[3]}-${m[2]}-${m[1]}`).sort();
+  const ref = vencimento || datasCompletas.pop() || hoje();
+  const refAno = Number(ref.slice(0, 4));
+  const refMes = Number(ref.slice(5, 7));
+
+  // Datas "15/10", "15/10/2026", "15.10.26" ou "15 OUT" (Nubank)
+  const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const RE_DATA = /^(\d{2})(?:[/.-](\d{2})(?:[/.-](\d{2,4}))?\b| (jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*\.?(?: (\d{4}))?\b)/i;
+  const RE_VALOR = /(-\s?)?(?:R\$\s?)?(\d{1,3}(?:\.\d{3})*,\d{2})(\s?-(?!\d)|\s?[DC]\b)?/g;
+  const RE_VALOR_ITEM = /^(-\s?)?(R\$\s?)?(\d{1,3}(?:\.\d{3})*,\d{2})(\s?-|\s?[DC])?$/;
+  // Seções que listam parcelas FUTURAS (não são cobranças deste mês)
+  const FUTURO_INI = /pr[oó]xim[ao]s? faturas?|lan[cç]amentos futuros|parcelas? (a vencer|futuras)|compras parceladas.{0,25}pr[oó]xim|saldo (de|do) parcelamento|demonstrativo de parcelamento/i;
+  const FUTURO_FIM = /detalhamento|lan[cç]amentos (nacionais|internacionais|do cart|da fatura)|despesas|x{4}|\*{4}|final \d{4}/i;
+  // Linhas informativas de faturas/extratos (resumo, limites, taxas)
+  const INFORMATIVO = /%|pagamento m[ií]nimo|total (a pagar|desta|da fatura|de compras|de cr[eé]ditos|dos lan|geral)|valor (total|m[ií]nimo)|limite|\bcet\b|custo efetivo|melhor data|vencimento|encargos|cota[cç][aã]o|per[ií]odo|^p[aá]gina|ag[eê]ncia|conta:/i;
+  const IGNORAR_PDF = (d) => IGNORAR.test(d) && !/remunera|rendimento/i.test(d)
+    || /pagamento (de |do )?cart[aã]o( de cr[eé]dito)?|pagto\.? cart/i.test(d);
+
+  const candidatos = [];
+  let futuro = false;
+  let ultimaData = null;
+  let linhasDesdeData = 99;
+  for (const pg of paginas) {
+    futuro = false;
+    for (const itens of pg.linhas) {
+      const linha = itens.map((i) => i.s).join(' ').replace(/\s+/g, ' ').trim();
+      if (FUTURO_INI.test(linha)) { futuro = true; continue; }
+      if (futuro && FUTURO_FIM.test(linha)) futuro = false;
+      linhasDesdeData++;
+      if (futuro) continue;
+
+      const md = linha.match(RE_DATA);
+      // Valores com posição: classifica pela coluna (crédito/débito/saldo/US$) quando o cabeçalho existe
+      const valoresItens = itens.filter((i) => RE_VALOR_ITEM.test(i.s)).map((i) => {
+        const m = i.s.match(RE_VALOR_ITEM);
+        const cx = i.x + i.w / 2;
+        let coluna = null;
+        let dist = 90;
+        for (const c of pg.colunas) if (Math.abs(c.x - cx) < dist) { dist = Math.abs(c.x - cx); coluna = c.nome; }
+        return { valor: Number(m[3].replace(/\./g, '').replace(',', '.')), negativo: Boolean(m[1] || /-|D/.test(m[4] || '')), credito: /C/.test(m[4] || ''), coluna };
+      });
+      let valores = valoresItens.length ? valoresItens : [...linha.matchAll(RE_VALOR)].map((m) => ({
+        valor: Number(m[2].replace(/\./g, '').replace(',', '.')), negativo: Boolean(m[1] || /-|D/.test(m[3] || '')), credito: /C/.test(m[3] || ''), coluna: null,
+      }));
+      valores = valores.filter((v) => v.coluna !== 'saldo' && v.coluna !== 'usd');
+      if (!valores.length) continue;
+
+      let descricao = linha.replace(RE_DATA, '').replace(RE_VALOR, ' ').replace(/\s+/g, ' ').trim();
+      // Parcela no formato 03/10 depois da descrição
+      const mp = descricao.match(/\s(\d{2})\/(\d{2})$/);
+      if (mp && Number(mp[1]) <= Number(mp[2])) descricao = `${descricao.slice(0, mp.index)} - Parcela ${Number(mp[1])}/${Number(mp[2])}`;
+      descricao = descricao.replace(/\b\d{5,}\b/g, '').replace(/\s+/g, ' ').trim(); // nº de documento
+      if (!/[a-zà-ú]{3}/i.test(descricao) || INFORMATIVO.test(linha) || IGNORAR_PDF(descricao)) continue;
+
+      let dia;
+      let mes;
+      let ano;
+      if (md) {
+        dia = Number(md[1]);
+        mes = md[2] ? Number(md[2]) : MESES.indexOf(md[4].toLowerCase().slice(0, 3)) + 1;
+        if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue;
+        const anoTxt = md[3] || md[5];
+        ano = anoTxt ? Number(anoTxt.length === 2 ? `20${anoTxt}` : anoTxt) : (mes > refMes ? refAno - 1 : refAno);
+        ultimaData = { dia, mes, ano };
+        linhasDesdeData = 0;
+      } else if (!fatura && ultimaData && linhasDesdeData <= 6) {
+        // Extratos que mostram a data só na primeira movimentação do dia
+        ({ dia, mes, ano } = ultimaData);
+        linhasDesdeData = 0;
+      } else continue;
+
+      const v = valores[0];
+      let natureza;
+      if (v.coluna === 'credito' || v.credito) natureza = 'entrada';
+      else if (v.coluna === 'debito') natureza = 'saida';
+      else if (fatura) natureza = v.negativo || PARECE_ENTRADA.test(descricao) ? 'entrada' : 'saida';
+      else natureza = null; // decide abaixo pelo conjunto de sinais do extrato
+      candidatos.push({
+        data: `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`,
+        descricao: descricao.slice(0, 150), valor: v.valor, negativo: v.negativo, natureza,
+      });
+    }
+  }
+  // Extratos sem colunas de crédito/débito: se houver valores negativos, eles são os débitos
+  const temNegativos = candidatos.some((c) => !c.natureza && c.negativo);
+  const transacoes = candidatos.map((c) => {
+    const natureza = c.natureza || (temNegativos ? (c.negativo ? 'saida' : 'entrada') : (PARECE_ENTRADA.test(c.descricao) ? 'entrada' : 'saida'));
+    return { data: c.data, descricao: c.descricao, valor: c.valor, natureza, tipo: categorizar(c.descricao, natureza) };
+  });
+  const banco = (texto.match(/\b(santander|ita[uú]|bradesco|banco do brasil|caixa|nubank|inter|c6 bank|sicredi|sicoob|btg|xp)\b/i) || [])[1] || '';
+  return { banco, tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento, transacoes, metodo: 'local' };
+}
+
+// Texto do PDF (já aberto com a senha) para enviar à IA quando ela não consegue ler o arquivo original
+async function textoDoPdf(file) {
+  const { paginas } = await extrairPdf(file);
+  return paginas.map((pg, i) => `--- Página ${i + 1} ---\n${pg.linhas.map((l) => l.map((it) => it.s).join('  ')).join('\n')}`).join('\n');
 }
 
 // ---------- Eventos ----------
