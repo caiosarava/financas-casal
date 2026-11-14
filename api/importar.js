@@ -41,9 +41,14 @@ Para cada lançamento, defina "natureza":
   telefone, condomínio, aluguel, escola, seguros, tributos), débitos automáticos, assinaturas, tarifas, IOF, juros, saques.
 - "entrada": salários, depósitos, Pix recebidos, TED/DOC/transferências recebidas, rendimentos, reembolsos e estornos.
 
-NÃO inclua: saldo anterior/atual/do dia, totais e subtotais, limites, aplicações e resgates de investimento,
-e o pagamento da própria fatura do cartão de crédito (no extrato: "Pagamento de fatura"; na fatura: "Inclusão de pagamento",
-"Pagamento recebido") — as compras do cartão entram pela própria fatura. Boletos de outras contas NÃO são pagamento de fatura: inclua-os.
+NÃO inclua: saldo anterior/atual/do dia, totais e subtotais, limites, aplicações e resgates de investimento, e — dentro da
+FATURA do cartão — o crédito do pagamento dela ("Inclusão de pagamento", "Pagamento recebido", "Pagamento de fatura").
+Boletos de outras contas NÃO são pagamento de fatura: inclua-os como gastos normais.
+
+Transferências internas (tipo "Transferência interna"): em EXTRATOS, o pagamento da fatura do cartão ("Pagamento de fatura",
+"Pagamento cartão de crédito") e Pix/TED/transferências entre contas do próprio titular (o favorecido/remetente tem o mesmo nome
+do titular) devem vir com tipo "Transferência interna", mantendo a natureza (saida quando sai, entrada quando entra). Elas
+não são gastos nem entradas de verdade — as compras do cartão entram pela própria fatura.
 
 Layouts comuns (ex.: Santander, Itaú, Bradesco, Banco do Brasil):
 - Faturas podem listar os lançamentos em DUAS COLUNAS lado a lado e ter uma seção por cartão (titular e adicionais): inclua todas.
@@ -87,7 +92,7 @@ Categorias de SAÍDA:
   Assinaturas (streaming, softwares, serviços recorrentes), Educação (escola, faculdade, cursos, material escolar),
   Impostos e taxas (DARF, DAS, IPVA, IPTU, licenciamento, taxas públicas), Seguros (auto, vida, residencial, cartão protegido),
   Tarifas e juros (tarifas bancárias, cesta de serviços, anuidade, IOF, juros, multas),
-  Transferências (Pix/TED/DOC enviados a pessoas, quando não for um estabelecimento identificável), Outros (o que não se encaixar).
+  Transferências (Pix/TED/DOC enviados a outras pessoas, quando não for um estabelecimento identificável), Outros (o que não se encaixar).
   Boleto ou débito automático de concessionária (energia, água, gás, telefone, internet) ou condomínio/aluguel = Contas da casa.
 Categorias de ENTRADA:
   Salário (salário, pró-labore, folha, adiantamento salarial), Pix recebido, Depósito, Transferência (TED/DOC/transferências recebidas),

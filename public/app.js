@@ -6,14 +6,18 @@ const CATS = {
   'Mercado': '🛒', 'Farmácia': '💊', 'Padaria': '🥖', 'iFood': '🛵', 'Restaurante': '🍽️',
   'Transporte': '🚗', 'Combustível': '⛽', 'Contas da casa': '🏠', 'Saúde': '🩺',
   'Lazer': '🎉', 'Compras': '🛍️', 'Assinaturas': '📺', 'Educação': '🎓', 'Impostos e taxas': '🧾',
-  'Seguros': '🛡️', 'Tarifas e juros': '🏦', 'Transferências': '💸', 'Outros': '📦',
+  'Seguros': '🛡️', 'Tarifas e juros': '🏦', 'Transferências': '💸', 'Transferência interna': '🔁', 'Outros': '📦',
 };
 const CATS_E = {
-  'Salário': '💼', 'Pix recebido': '⚡', 'Depósito': '🏦', 'Transferência': '🔁', 'Rendimentos': '📈', 'Outras entradas': '💵',
+  'Salário': '💼', 'Pix recebido': '⚡', 'Depósito': '🏦', 'Transferência': '↪️', 'Rendimentos': '📈', 'Outras entradas': '💵',
+  'Transferência interna': '🔁',
 };
 const RAPIDOS = ['Mercado', 'Farmácia', 'Padaria', 'iFood'];
 const RAPIDOS_E = ['Salário', 'Pix recebido', 'Depósito', 'Transferência'];
 const ENDPOINT = { saida: '/api/gastos', entrada: '/api/entradas' };
+// Transferência entre contas do próprio casal / pagamento de fatura: registrada, mas fora de gastos, entradas e saldo
+const INTERNA = 'Transferência interna';
+const conta = (g) => g.tipo !== INTERNA;
 const emojiDe = (tipo) => CATS[tipo] || CATS_E[tipo] || '📦';
 const catsDe = (natureza) => (natureza === 'entrada' ? CATS_E : CATS);
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -223,9 +227,9 @@ async function renderInicio() {
     [atual, anterior] = await Promise.all([dadosDoMes(state.mes), dadosDoMes(deslocarMes(state.mes, -1))]);
   } catch (e) { toast(e.message); return; }
   if (state.view !== 'inicio') return;
-  const g = filtrarVisao(atual.gastos);
-  const gAnt = filtrarVisao(anterior.gastos);
-  const ent = filtrarVisao(atual.entradas);
+  const g = filtrarVisao(atual.gastos).filter(conta);
+  const gAnt = filtrarVisao(anterior.gastos).filter(conta);
+  const ent = filtrarVisao(atual.entradas).filter(conta);
   const totalEnt = ent.reduce((s, x) => s + x.valor, 0);
   const total = g.reduce((s, x) => s + x.valor, 0);
   const totalAnt = gAnt.reduce((s, x) => s + x.valor, 0);
@@ -378,9 +382,11 @@ async function renderLista() {
   renderFiltroPessoa();
   $$('#filtro-dono button').forEach((b) => b.classList.toggle('on', b.dataset.d === state.filtroDono));
   itens = itens.sort((a, b) => b.data.localeCompare(a.data) || (a.natureza === 'entrada' ? -1 : 1));
-  const soma = (n) => itens.filter((g) => g.natureza === n).reduce((s, g) => s + g.valor, 0);
+  const soma = (n) => itens.filter((g) => g.natureza === n && conta(g)).reduce((s, g) => s + g.valor, 0);
+  const internas = itens.filter((g) => !conta(g));
   $('#resumo-lista').textContent = itens.length
     ? `${itens.length} lançamento${itens.length === 1 ? '' : 's'} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`
+      + (internas.length ? ` · 🔁 ${internas.length} entre contas (fora do saldo)` : '')
     : '';
   if (!itens.length) {
     const pessoa = state.filtroDono === 'casal' && state.filtroPessoa ? ` registrado por ${nomeDe(state.filtroPessoa)}` : '';
@@ -394,7 +400,7 @@ async function renderLista() {
   for (const g of itens) {
     if (g.data !== diaAtual) {
       diaAtual = g.data;
-      const totalDia = itens.filter((x) => x.data === g.data).reduce((s, x) => s + sinal(x) * x.valor, 0);
+      const totalDia = itens.filter((x) => x.data === g.data && conta(x)).reduce((s, x) => s + sinal(x) * x.valor, 0);
       const d = new Date(`${g.data}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
       html += `<li class="dia linha-entre"><span>${d.charAt(0).toUpperCase() + d.slice(1)}</span><span>${totalDia > 0 ? '+' : totalDia < 0 ? '−' : ''}${fmt(Math.abs(totalDia))}</span></li>`;
     }
@@ -403,7 +409,7 @@ async function renderLista() {
       <span class="emoji" style="background:${corPessoa(g.usuario)}22">${emojiDe(g.tipo)}</span>
       <span class="info"><b>${esc(g.descricao || g.tipo)}</b>
         <small>${esc(g.tipo)} · ${esc(nomeDe(g.usuario))}${g.compartilhado ? '' : '<span class="badge">🔒 só eu</span>'}${g.origem === 'folha' ? '<span class="badge">folha</span>' : g.origem === 'pdf' || g.origem === 'planilha' ? '<span class="badge">importado</span>' : ''}</small></span>
-      <span class="valor ${entrada ? 'pos' : ''}">${entrada ? '+' : '−'}${fmt(g.valor)}</span></li>`;
+      <span class="valor ${!conta(g) ? 'interna' : entrada ? 'pos' : ''}">${!conta(g) ? '↔ ' : entrada ? '+' : '−'}${fmt(g.valor)}</span></li>`;
   }
   ul.innerHTML = html;
   $$('li.item', ul).forEach((li) => li.addEventListener('click', () => {
@@ -436,7 +442,7 @@ function montarFormularioGasto() {
   montarFormularioGasto.ok = true;
   $('#filtro-tipo').innerHTML = `<option value="">Todos os lançamentos</option>
     <option value="__saida">💸 Só gastos</option><option value="__entrada">💰 Só entradas</option>
-    <optgroup label="Gastos">${opcoes(CATS)}</optgroup><optgroup label="Entradas">${opcoes(CATS_E)}</optgroup>`;
+    <optgroup label="Gastos">${opcoes(CATS)}</optgroup><optgroup label="Entradas">${opcoes(Object.fromEntries(Object.entries(CATS_E).filter(([k]) => k !== INTERNA)))}</optgroup>`;
   $('#sel-tipo').addEventListener('change', marcarRapido);
   $('#sel-tipo').addEventListener('change', avisoRegra);
   $('#form-gasto').data.addEventListener('change', avisoRegra);
@@ -945,6 +951,7 @@ async function importarPdf(file) {
     ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: t.origem || (pdf ? 'pdf' : 'planilha'),
     compartilhado: visPadrao, compManual: false,
   }));
+  marcarTransferenciasInternas(state.importados, resultado.tipoDocumento);
   $('#import-holerite').classList.toggle('hidden', resultado.tipoDocumento !== 'holerite');
   $('#import-compensar').checked = false;
 
@@ -1045,9 +1052,11 @@ async function avaliarImportados() {
 
 function atualizarResumoImport() {
   const sel = state.importados.filter((t) => t.sel);
-  const soma = (n) => sel.filter((t) => t.natureza === n).reduce((s, t) => s + (t.valor || 0), 0);
+  const soma = (n) => sel.filter((t) => t.natureza === n && conta(t)).reduce((s, t) => s + (t.valor || 0), 0);
   const privados = sel.filter((t) => !t.compartilhado).length;
+  const internas = sel.filter((t) => !conta(t));
   $('#import-resumo').textContent = `Selecionados: ${sel.length} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`
+    + (internas.length ? ` · 🔁 ${internas.length} transferências internas (${fmt(internas.reduce((s, t) => s + t.valor, 0))}, fora do saldo)` : '')
     + ` · 👫 ${sel.length - privados} casal · 🔒 ${privados} só eu`;
 }
 
@@ -1148,8 +1157,44 @@ const PALAVRAS_E = [
 ];
 // Linhas que não são lançamentos: saldos, totais, pagamento da fatura do cartão (já entra pela própria fatura)
 // e movimentações de investimento.
-const IGNORAR = /^saldo|saldo (anterior|do dia|final|inicial|dispon|em conta)|^total|total (da|de|geral)|pagamento (de |da )?fatura|pagto\.? (de )?fatura|pgto\.? (de )?fatura|fatura (do )?cart[aã]o|inclus[aã]o de pagamento|pagamento recebido|^limite|aplica[cç][aã]o|resgate|invest|poupan[cç]a autom/i;
+const IGNORAR = /^saldo|saldo (anterior|do dia|final|inicial|dispon|em conta)|^total|total (da|de|geral)|inclus[aã]o de pagamento|pagamento recebido|^limite|aplica[cç][aã]o|resgate|invest|poupan[cç]a autom/i;
+// Pagamento da fatura do cartão: na fatura é ignorado (espelho); no extrato vira "Transferência interna"
+const RE_PAG_FATURA = /pagamento (de |da )?fatura|pagto\.? (de )?fatura|pgto\.? (de )?fatura|fatura (do )?cart[aã]o|pagamento (de |do )?cart[aã]o( de)?( cr[eé]dito)?|pagto\.? cart|pgto\.? cart|nu ?pagamentos.*fatura/i;
 const PARECE_ENTRADA = /sal[aá]rio|recebid|dep[oó]sito|cr[eé]dito em conta|estorno|reembolso|rendimento|proventos|ted recebida|pix recebido|transfer[eê]ncia recebida|cashback/i;
+
+// Reconhece Pix/TED/transferências entre contas da própria pessoa ou entre o casal (pelo nome do favorecido/remetente)
+const normTxt = (t) => ` ${String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()} `;
+const CONECTIVOS = new Set(['de', 'da', 'do', 'dos', 'das', 'e']);
+function pessoaDoCasalNaDescricao(descricao) {
+  const d = normTxt(descricao);
+  if (!/ (pix|ted|doc|transf\w*|transferencia|envio|enviad[oa]|recebid[oa]) /.test(d)) return null;
+  const tokens = d.trim().split(' ');
+  for (const u of state.user?.usuarios || []) {
+    const partes = normTxt(u.nomeCompleto || u.nome || '').trim().split(' ').filter(Boolean);
+    // Primeiro nome: do nome completo (perfil Google) e/ou do nome curto configurado
+    const primeiros = [partes[0], normTxt(u.nome || '').trim().split(' ')[0]].filter(Boolean);
+    if (!primeiros.some((n) => tokens.includes(n))) continue;
+    const sobrenomes = partes.slice(1).filter((p) => p.length >= 4 && !CONECTIVOS.has(p));
+    // Com sobrenomes conhecidos, exige ao menos um (aceita nome truncado pelo banco: "saraval" ↔ "saravalle")
+    const confere = !sobrenomes.length || sobrenomes.some((s) => tokens.some((t) => t.length >= 4 && (s.startsWith(t) || t.startsWith(s))));
+    if (confere) return u;
+  }
+  return null;
+}
+
+function marcarTransferenciasInternas(itens, tipoDocumento) {
+  if (tipoDocumento === 'fatura_cartao' || tipoDocumento === 'holerite') return; // na fatura, Pix é compra no crédito
+  for (const t of itens) {
+    if (t.tipo === INTERNA) { t.nota ||= 'Pagamento da fatura do cartão — os gastos entram pela própria fatura'; continue; }
+    const p = pessoaDoCasalNaDescricao(t.descricao);
+    if (!p) continue;
+    t.tipo = INTERNA;
+    t.nota = p.email === state.user.email
+      ? 'Transferência entre suas próprias contas — não é gasto nem entrada'
+      : `Transferência ${t.natureza === 'saida' ? 'para' : 'de'} ${p.nome} — dinheiro do casal mudando de conta`;
+  }
+  for (const t of itens) if (t.tipo === INTERNA && !t.nota) t.nota = 'Transferência interna — fora de gastos, entradas e saldo';
+}
 
 function categorizar(desc, natureza = 'saida', categoriaBanco = '') {
   if (natureza === 'entrada') {
@@ -1330,7 +1375,7 @@ function interpretarTabela(linhas) {
       }
     }
     if (!Number.isFinite(valor) || valor === 0 || IGNORAR.test(descricao)) continue;
-    brutos.push({ data, descricao: descricao.slice(0, 150), valor, natureza, categoriaBanco });
+    brutos.push({ data, descricao: descricao.slice(0, 150), valor, natureza, categoriaBanco, pagFatura: RE_PAG_FATURA.test(descricao) });
   }
 
   // Coluna única de valor: o sinal define a natureza. Em extratos, negativos = gastos;
@@ -1344,13 +1389,14 @@ function interpretarTabela(linhas) {
     if (ehFatura) b.natureza = b.valor < 0 || PARECE_ENTRADA.test(b.descricao) ? 'entrada' : 'saida';
     else b.natureza = b.valor < 0 ? 'saida' : 'entrada';
   }
-  const transacoes = brutos.map((b) => ({
-    data: b.data, descricao: b.descricao, valor: Math.round(Math.abs(b.valor) * 100) / 100,
-    natureza: b.natureza, tipo: categorizar(b.descricao, b.natureza, b.categoriaBanco),
-  }));
   // É fatura quando não há colunas de entrada/saída e os valores são majoritariamente positivos,
   // ou quando há colunas típicas de cartão (parcela/categoria do banco)
   const fatura = !temColunasES && (ehFatura || col.parcela >= 0);
+  // Pagamento da fatura: dentro da fatura é só o espelho do pagamento (ignora); no extrato é transferência interna
+  const transacoes = brutos.filter((b) => !(fatura && b.pagFatura)).map((b) => ({
+    data: b.data, descricao: b.descricao, valor: Math.round(Math.abs(b.valor) * 100) / 100,
+    natureza: b.natureza, tipo: b.pagFatura ? INTERNA : categorizar(b.descricao, b.natureza, b.categoriaBanco),
+  }));
   return { banco: '', tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento: '', transacoes, metodo: 'local' };
 }
 
@@ -1597,8 +1643,7 @@ async function lerPdfLocal(file) {
   const FUTURO_FIM = /detalhamento|lan[cç]amentos (nacionais|internacionais|do cart|da fatura)|despesas|x{4}|\*{4}|final \d{4}/i;
   const INFORMATIVO = /%|pagamento m[ií]nimo|total (a pagar|desta|da fatura|de compras|de cr[eé]ditos|dos lan|geral|de pagamentos|de encargos|despesas)|valor (total|m[ií]nimo|pago)|limite|\bcet\b|custo efetivo|melhor (data|dia)|vencimento|encargos|cota[cç][aã]o|^p[aá]gina|ag[eê]ncia|conta:|saldo (inicial|final|desta|anterior|total)/i;
   const CABECALHO_DIA = /^(segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)\b.*\d{4}$|^(data|compra)\b.*\b(descri|valor|saldo|parcela)/i;
-  const IGNORAR_PDF = (d) => (IGNORAR.test(d) && !/remunera|rendimento/i.test(d))
-    || /pagamento (de |do )?cart[aã]o( de)?( cr[eé]dito)?|pagto\.? cart|pgto\.? cart/i.test(d);
+  const IGNORAR_PDF = (d) => (IGNORAR.test(d) && !/remunera|rendimento/i.test(d)) || (fatura && RE_PAG_FATURA.test(d));
 
   const candidatos = [];
   let ultimaData = null;
@@ -1693,7 +1738,7 @@ async function lerPdfLocal(file) {
     let natureza = c.natureza;
     if (!natureza && fatura) natureza = PARECE_ENTRADA.test(c.descricao) ? 'entrada' : 'saida';
     if (!natureza) natureza = temNegativos ? (c.negativo ? 'saida' : 'entrada') : (PARECE_ENTRADA.test(c.descricao) ? 'entrada' : 'saida');
-    return { data: c.data, descricao: c.descricao, valor: c.valor, natureza, tipo: categorizar(c.descricao, natureza) };
+    return { data: c.data, descricao: c.descricao, valor: c.valor, natureza, tipo: RE_PAG_FATURA.test(c.descricao) ? INTERNA : categorizar(c.descricao, natureza) };
   });
   const banco = (texto.match(/\b(santander|ita[uú]|bradesco|banco do brasil|caixa|nubank|inter|c6 bank|sicredi|sicoob|btg|xp)\b/i) || [])[1] || '';
   return { banco, tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento, transacoes, metodo: 'local' };

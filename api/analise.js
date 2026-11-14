@@ -8,6 +8,7 @@
 import { GoogleGenAI, ApiError } from '@google/genai';
 import { handler, HttpError, requireUser, userNames } from '../lib/auth.js';
 import { readAll } from '../lib/sheets.js';
+import { TIPO_INTERNO } from '../lib/categorias.js';
 
 const MODELO = () => process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 // Modelos de reserva usados quando o principal está sobrecarregado (503) ou sem cota (429)
@@ -106,7 +107,9 @@ async function contextoDoMes(email, mes, visao) {
     .filter((g) => g.usuario === email || g.compartilhado !== 'NAO')
     .filter((g) => (visao === 'casal' ? g.compartilhado !== 'NAO' : visao === 'meus' ? g.usuario === email : true))
     .map((g) => ({ data: String(g.data), valor: Number(g.valor) || 0, tipo: g.tipo, descricao: g.descricao, natureza, pessoa: nomes[g.usuario] || g.usuario }));
-  const todos = [...visiveis(gastos, 'saida'), ...visiveis(entradas, 'entrada')];
+  const todosComInternas = [...visiveis(gastos, 'saida'), ...visiveis(entradas, 'entrada')];
+  const internas = todosComInternas.filter((t) => t.tipo === TIPO_INTERNO && t.data.startsWith(mes));
+  const todos = todosComInternas.filter((t) => t.tipo !== TIPO_INTERNO);
   const doMes = (m) => todos.filter((t) => t.data.startsWith(m));
   const atual = doMes(mes);
   const ant = doMes(anterior(mes));
@@ -128,6 +131,9 @@ ${JSON.stringify(resumo(atual), null, 1)}
 TOTAIS DO MÊS ANTERIOR (${anterior(mes)}), para comparação:
 ${ant.length ? JSON.stringify(resumo(ant), null, 1) : 'sem lançamentos'}
 
+TRANSFERÊNCIAS INTERNAS (entre contas do casal / pagamento de fatura — NÃO são gastos nem entradas, já excluídas dos totais):
+${internas.length ? `${internas.length} movimentações, R$ ${r2(internas.reduce((s, t) => s + t.valor, 0))}` : 'nenhuma'}
+
 LANÇAMENTOS DO MÊS (data | natureza | tipo | valor | descrição | pessoa):
 ${linhas(atual.sort((a, b) => a.data.localeCompare(b.data)))}`,
   };
@@ -143,7 +149,7 @@ function contextoDaImportacao(body) {
       descricao: String(t.descricao || '').slice(0, 120),
       natureza: t.natureza === 'entrada' ? 'entrada' : 'saida',
     }))
-    .filter((t) => t.valor > 0);
+    .filter((t) => t.valor > 0 && t.tipo !== TIPO_INTERNO);
   const g = lista.filter((t) => t.natureza === 'saida');
   const e = lista.filter((t) => t.natureza === 'entrada');
   const tipoDoc = { fatura_cartao: 'fatura de cartão de crédito', extrato_bancario: 'extrato bancário' }[body.tipoDocumento] || 'extrato ou fatura';
