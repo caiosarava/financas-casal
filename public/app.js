@@ -51,6 +51,7 @@ const state = {
   charts: {},
   importados: [],
   filtroDono: lerLS('fc_filtro_dono') || 'todos', // Lançamentos: todos | casal | privado
+  filtroPessoa: lerLS('fc_filtro_pessoa') || '', // dentro de "Casal": '' = ambos, ou e-mail de quem registrou
   analises: {},       // cache de análises do Gemini por mês/visão
 };
 
@@ -383,8 +384,11 @@ async function renderLista() {
   else if (filtro === '__entrada') itens = dados.entradas;
   else if (filtro) itens = itens.filter((g) => g.tipo === filtro);
   // Filtro de visibilidade próprio da tela de Lançamentos
-  if (state.filtroDono === 'casal') itens = itens.filter((g) => g.compartilhado);
-  else if (state.filtroDono === 'privado') itens = itens.filter((g) => !g.compartilhado && g.meu);
+  if (state.filtroDono === 'casal') {
+    itens = itens.filter((g) => g.compartilhado);
+    if (state.filtroPessoa) itens = itens.filter((g) => g.usuario === state.filtroPessoa);
+  } else if (state.filtroDono === 'privado') itens = itens.filter((g) => !g.compartilhado && g.meu);
+  renderFiltroPessoa();
   $$('#filtro-dono button').forEach((b) => b.classList.toggle('on', b.dataset.d === state.filtroDono));
   itens = itens.sort((a, b) => b.data.localeCompare(a.data) || (a.natureza === 'entrada' ? -1 : 1));
   const soma = (n) => itens.filter((g) => g.natureza === n).reduce((s, g) => s + g.valor, 0);
@@ -392,7 +396,8 @@ async function renderLista() {
     ? `${itens.length} lançamento${itens.length === 1 ? '' : 's'} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`
     : '';
   if (!itens.length) {
-    const motivo = state.filtroDono === 'casal' ? 'compartilhado com o casal' : state.filtroDono === 'privado' ? 'só seu (privado)' : '';
+    const pessoa = state.filtroDono === 'casal' && state.filtroPessoa ? ` registrado por ${nomeDe(state.filtroPessoa)}` : '';
+    const motivo = state.filtroDono === 'casal' ? `compartilhado com o casal${pessoa}` : state.filtroDono === 'privado' ? 'só seu (privado)' : '';
     ul.innerHTML = `<li class="vazio">Nenhum lançamento ${motivo ? `${motivo} ` : ''}neste mês.<br>Use ‹ › ou toque no nome do mês para ver outros meses.</li>`;
     return;
   }
@@ -418,6 +423,21 @@ async function renderLista() {
     const g = itens.find((x) => x.id === li.dataset.id && x.natureza === li.dataset.n);
     if (g.meu) abrirGasto(g, g.natureza);
     else toast(`Registrado por ${nomeDe(g.usuario)} — só quem registrou pode editar.`);
+  }));
+}
+
+// Sub-filtro do "Casal": Ambos / cada pessoa (quem registrou)
+function renderFiltroPessoa() {
+  const el = $('#filtro-pessoa');
+  const visivel = state.filtroDono === 'casal';
+  el.classList.toggle('hidden', !visivel);
+  if (!visivel) return;
+  if (state.filtroPessoa && !state.user.usuarios.some((u) => u.email === state.filtroPessoa)) state.filtroPessoa = '';
+  el.innerHTML = [{ email: '', nome: 'Ambos' }, ...state.user.usuarios].map((u) => `<button data-p="${esc(u.email)}" class="${u.email === state.filtroPessoa ? 'on' : ''}">${u.email ? `<i class="dot" style="background:${corPessoa(u.email)}"></i>` : '👫 '}${esc(u.nome)}</button>`).join('');
+  $$('button', el).forEach((b) => b.addEventListener('click', () => {
+    state.filtroPessoa = b.dataset.p;
+    gravarLS('fc_filtro_pessoa', state.filtroPessoa);
+    renderLista();
   }));
 }
 
