@@ -13,10 +13,13 @@ PWA (web app instalável no Android) para o casal registrar gastos e entradas, a
 | **Início** | Gastos do mês (comparado ao mês anterior), **balanço Entradas × Gastos × Saldo**, botão **＋ Registrar entrada**, entradas e gastos por pessoa, gráfico por tipo, gráfico por pessoa × tipo, evolução acumulada no mês e resumo das metas. Filtros **Tudo / Casal / Meus** e navegação entre meses. Tocar num tipo abre a lista filtrada. |
 | **＋ (botão flutuante)** | Registrar gasto: valor, tipo (atalhos para Mercado, Farmácia, Padaria e iFood + outros tipos), data, descrição e **quem pode ver**: 👫 Casal (compartilhado) ou 🔒 Só eu. |
 | **Registrar entrada** | No mesmo formulário (alternando 💸 Gasto / 💰 Entrada) ou pelo botão do dashboard: Salário, Pix recebido, Depósito, Transferência, Rendimentos e Outras entradas — também com opção casal / só eu. |
-| **Lançamentos** | Gastos e entradas do mês agrupados por dia (entradas em verde com "+"), com filtro por tipo, só gastos ou só entradas, e filtro **Todos / 👫 Casal / 🔒 Só meus** (com o total do que está filtrado). Toque num lançamento seu para editar/excluir. |
+| **Lançamentos** | Gastos e entradas do mês agrupados por dia (entradas em verde com "+"), com filtro por tipo, só gastos ou só entradas, e filtro **Todos / 👫 Casal / 🔒 Só meus** (com o total do que está filtrado). No fim da lista, **🗑️ Apagar meus lançamentos** apaga, com confirmação, os lançamentos de quem está usando (do mês ou de todos os meses; gastos e/ou entradas) — os da outra pessoa nunca são afetados. Toque num lançamento seu para editar/excluir. |
 | **Metas** | Meta anual do **casal** e meta **individual**. Botão **＋ Guardar** registra cada valor guardado; a barra mostra o progresso e quanto falta por mês até dezembro. Metas individuais só aparecem para o dono. |
 | **✨ Análise com IA (Gemini)** | Card no Início que analisa o mês (respeitando o filtro Tudo/Casal/Meus) comparando com o mês anterior, e botão **"Analisar este extrato"** na revisão da importação. Traz resumo, alertas (ex.: parcelamento de fatura com juros, IOF, tarifas, cobranças possivelmente duplicadas), assinaturas recorrentes, parcelamentos em andamento e dicas de economia. |
 | **Importar** | Upload do extrato bancário ou fatura do cartão em **PDF, CSV, XLS, XLSX ou ODS**. A IA (Claude) extrai **gastos e entradas** e identifica o tipo de cada um. Você revisa, troca gasto ↔ entrada, ajusta tipos, escolhe **👫 Casal ou 🔒 Só eu em cada lançamento** (ou aplica a todos os selecionados), desmarca duplicados e salva. Sem chave de IA, há leitores locais de reserva (para CSV/XLS eles reconhecem colunas como Data, Histórico/Descrição, Valor ou Débito/Crédito). |
+
+### Regra do salário no mês seguinte (Thiane)
+Uma **entrada do tipo Salário** registrada pela Thiane no **último dia útil do mês** (ou depois dele, em fim de semana/feriado) é considerada no **primeiro dia útil do mês seguinte**; a data original fica na descrição, ex.: "Liquido de vencimento (recebido em 30/10)". Dias úteis consideram fins de semana e feriados bancários nacionais (incluindo Carnaval, Sexta-feira Santa, Corpus Christi e 31/12). A regra é aplicada no servidor ao criar o lançamento (manual ou importado) e aparece como aviso no formulário e na revisão da importação; editar o lançamento depois respeita a data escolhida. Os e-mails da regra ficam em `REGRA_SALARIO_MES_SEGUINTE` (padrão `thianedepra@gmail.com`). Código: `public/regras.js`.
 
 ### Regras de visibilidade (valem para gastos e entradas)
 - Lançamento **compartilhado**: os dois veem e entra nos gráficos do casal.
@@ -87,6 +90,7 @@ Para a análise financeira com IA, crie uma chave gratuita no **Google AI Studio
 | `ALLOWED_EMAILS` | `caio.sarava@gmail.com,thianedepra@gmail.com` |
 | `USER_NAMES` | `caio.sarava@gmail.com:Caio,thianedepra@gmail.com:Thiane` |
 | `ANTHROPIC_API_KEY` | (opcional) chave da API do Claude — leitura dos extratos |
+| `REGRA_SALARIO_MES_SEGUINTE` | (opcional) e-mails da regra do salário no mês seguinte; padrão `thianedepra@gmail.com` |
 | `GEMINI_API_KEY` | (opcional) chave da API do Gemini — análise financeira com IA |
 | `GEMINI_MODEL` | (opcional) modelo do Gemini; padrão `gemini-3.8-flash` |
 | `GEMINI_MODELOS_RESERVA` | (opcional) modelos usados quando o principal está sobrecarregado; padrão `gemini-3.8-flash-lite` |

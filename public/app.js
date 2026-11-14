@@ -1,4 +1,5 @@
 // Finanças do Casal — frontend (PWA, JS puro)
+import { ajusteSalarioMesSeguinte } from './regras.js';
 
 // ---------- Constantes ----------
 const CATS = {
@@ -29,6 +30,12 @@ const parseValor = (s) => {
   if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
   return Number(t);
 };
+
+// Regra do salário no mês seguinte (mesma lógica do servidor, em public/regras.js)
+const ajusteSalario = (t) => (t.natureza === 'entrada' && state.user
+  ? ajusteSalarioMesSeguinte({ data: t.data, tipo: t.tipo }, state.user.email, state.config?.regraSalarioMesSeguinte || [])
+  : null);
+const dataBR = (iso) => iso.split('-').reverse().join('/');
 
 // ---------- Estado ----------
 const state = {
@@ -424,11 +431,21 @@ function montarFormularioGasto() {
     <option value="__saida">💸 Só gastos</option><option value="__entrada">💰 Só entradas</option>
     <optgroup label="Gastos">${opcoes(CATS)}</optgroup><optgroup label="Entradas">${opcoes(CATS_E)}</optgroup>`;
   $('#sel-tipo').addEventListener('change', marcarRapido);
+  $('#sel-tipo').addEventListener('change', avisoRegra);
+  $('#form-gasto').data.addEventListener('change', avisoRegra);
   $$('#seg-natureza button').forEach((b) => b.addEventListener('click', () => definirNatureza(b.dataset.n)));
 }
 
 function marcarRapido() {
   $$('#tipos-rapidos button').forEach((b) => b.classList.toggle('on', b.dataset.tipo === $('#sel-tipo').value));
+}
+
+function avisoRegra() {
+  const f = $('#form-gasto');
+  const novo = !f.id.value;
+  const aj = novo ? ajusteSalario({ natureza: f.dataset.natureza, tipo: f.tipo.value, data: f.data.value }) : null;
+  $('#aviso-regra').classList.toggle('hidden', !aj);
+  if (aj) $('#aviso-regra').textContent = `📅 Salário do último dia útil do mês: será considerado em ${dataBR(aj.data)} (1º dia útil do mês seguinte).`;
 }
 
 function definirNatureza(natureza, tipo) {
@@ -443,6 +460,7 @@ function definirNatureza(natureza, tipo) {
     .map((t) => `<button type="button" data-tipo="${t}">${cats[t]} ${t}</button>`).join('');
   $$('#tipos-rapidos button').forEach((b) => b.addEventListener('click', () => { $('#sel-tipo').value = b.dataset.tipo; marcarRapido(); }));
   marcarRapido();
+  avisoRegra();
   $('#inp-descricao').placeholder = entrada ? 'Ex.: salário de novembro' : 'Ex.: compra da semana';
   if (!f.id.value) $('#dlg-gasto-titulo').textContent = entrada ? 'Nova entrada' : 'Novo gasto';
   if (!f.id.value) {
@@ -464,6 +482,7 @@ function abrirGasto(g = null, natureza = 'saida') {
   $('#seg-natureza').classList.toggle('hidden', Boolean(g));
   if (g) $('#dlg-gasto-titulo').textContent = natureza === 'entrada' ? 'Editar entrada' : 'Editar gasto';
   $('#btn-excluir-gasto').classList.toggle('hidden', !g);
+  avisoRegra();
   $('#dlg-gasto').showModal();
   if (!g) setTimeout(() => f.valor.focus(), 50);
 }
@@ -486,14 +505,17 @@ async function salvarGasto(ev) {
   const btn = $('button[type=submit]', f);
   btn.disabled = true;
   try {
-    await api(ENDPOINT[natureza], { method: body.id ? 'PUT' : 'POST', body });
+    const resp = await api(ENDPOINT[natureza], { method: body.id ? 'PUT' : 'POST', body });
+    const dataSalva = resp.itens?.[0]?.data || body.data;
     gravarLS(entrada ? 'fc_ultimo_tipo_e' : 'fc_ultimo_tipo', body.tipo);
     gravarLS(entrada ? 'fc_ultimo_comp_e' : 'fc_ultimo_comp', body.compartilhado ? 'SIM' : 'NAO');
     $('#dlg-gasto').close();
-    toast(`${entrada ? 'Entrada' : 'Gasto'} ${body.id ? 'atualizad' : 'registrad'}${entrada ? 'a' : 'o'} ✔`);
+    toast(dataSalva !== body.data
+      ? `Salário registrado em ${dataBR(dataSalva)} (1º dia útil do mês seguinte) ✔`
+      : `${entrada ? 'Entrada' : 'Gasto'} ${body.id ? 'atualizad' : 'registrad'}${entrada ? 'a' : 'o'} ✔`);
     state.analises = {};
     state.cache = {};
-    mudarMes(body.data.slice(0, 7));
+    mudarMes(dataSalva.slice(0, 7));
     atualizarView();
   } catch (e) {
     $('#gasto-erro').textContent = e.message;
@@ -513,6 +535,77 @@ async function excluirGasto() {
     state.analises = {};
     atualizarView();
   } catch (e) { $('#gasto-erro').textContent = e.message; }
+}
+
+// ---------- Apagar meus lançamentos ----------
+async function abrirApagar() {
+  const f = $('#form-apagar');
+  f.reset();
+  $('#apagar-erro').textContent = '';
+  $('#apagar-mes-label').textContent = `Só ${mesLabel(state.mes).toLowerCase()}`;
+  $('#btn-confirmar-apagar').disabled = true;
+  $('#dlg-apagar').showModal();
+  previaApagar();
+}
+
+let todosLancamentos = null; // contagem de "todos os meses", buscada só quando necessário
+async function previaApagar() {
+  const f = $('#form-apagar');
+  const el = $('#apagar-previa');
+  const todos = f.periodo.value === 'todos';
+  el.textContent = 'Calculando…';
+  try {
+    let gastos;
+    let entradas;
+    if (todos) {
+      todosLancamentos ||= await Promise.all([api('/api/gastos'), api('/api/entradas')]);
+      [gastos, entradas] = todosLancamentos.map((r) => r.itens.filter((g) => g.meu));
+    } else {
+      const d = await dadosDoMes(state.mes);
+      gastos = d.gastos.filter((g) => g.meu);
+      entradas = d.entradas.filter((g) => g.meu);
+    }
+    const nG = f.gastos.checked ? gastos.length : 0;
+    const nE = f.entradas.checked ? entradas.length : 0;
+    const periodo = todos ? 'em todos os meses' : `em ${mesLabel(state.mes).toLowerCase()}`;
+    el.innerHTML = nG + nE
+      ? `Serão apagados <b>${nG} gasto${nG === 1 ? '' : 's'}</b> e <b>${nE} entrada${nE === 1 ? '' : 's'}</b> registrados por você ${periodo}. <b>Não dá para desfazer pelo app</b> (a planilha guarda o histórico de versões).`
+      : `Você não tem lançamentos ${periodo} para apagar.`;
+    f.dataset.total = nG + nE;
+  } catch (e) {
+    el.textContent = e.message;
+    f.dataset.total = 0;
+  }
+  validarApagar();
+}
+
+function validarApagar() {
+  const f = $('#form-apagar');
+  $('#btn-confirmar-apagar').disabled = !(Number(f.dataset.total) > 0 && f.confirmacao.value.trim().toUpperCase() === 'APAGAR'
+    && (f.gastos.checked || f.entradas.checked));
+}
+
+async function confirmarApagar(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  const btn = $('#btn-confirmar-apagar');
+  btn.disabled = true;
+  carregando(true);
+  try {
+    const qs = `todos=1&confirmar=APAGAR${f.periodo.value === 'mes' ? `&mes=${state.mes}` : ''}`;
+    let total = 0;
+    if (f.gastos.checked) total += (await api(`/api/gastos?${qs}`, { method: 'DELETE' })).apagados;
+    if (f.entradas.checked) total += (await api(`/api/entradas?${qs}`, { method: 'DELETE' })).apagados;
+    $('#dlg-apagar').close();
+    toast(`${total} lançamento${total === 1 ? '' : 's'} apagado${total === 1 ? '' : 's'} 🗑️`);
+    state.cache = {};
+    state.analises = {};
+    todosLancamentos = null;
+    atualizarView();
+  } catch (e) {
+    $('#apagar-erro').textContent = e.message;
+    validarApagar();
+  } finally { carregando(false); }
 }
 
 // ---------- Análise com IA (Gemini) ----------
@@ -773,6 +866,7 @@ function renderImportados() {
       </select>
       <select data-k="tipo" class="desc" aria-label="Tipo">${opcoes(catsDe(t.natureza), t.tipo)}</select>
       ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe lançamento com mesmo valor)</small>' : ''}
+      ${ajusteSalario(t) ? `<small class="sub desc" style="margin:0">📅 Salário do último dia útil: será considerado em ${dataBR(ajusteSalario(t).data)}</small>` : ''}
       ${t.mover ? `<small class="sub desc" style="margin:0">↪️ Já importado em ${t.mover.data.split('-').reverse().join('/')} — será movido para o vencimento</small>` : ''}
     </div></li>`).join('');
   $('#import-titulo').textContent = `Revise os lançamentos (${state.importados.length})`;
@@ -796,6 +890,7 @@ async function avaliarImportados() {
   const f = faturaAtiva();
   const meses = new Set(state.importados.map((t) => t.data.slice(0, 7)));
   if (f.ativo) meses.add(f.venc.slice(0, 7));
+  for (const t of state.importados) { const aj = ajusteSalario(t); if (aj) meses.add(aj.data.slice(0, 7)); }
   const dados = await Promise.all([...meses].map((m) => dadosDoMes(m).catch(() => ({ gastos: [], entradas: [] }))));
   const existentes = dados.flatMap((d) => [...d.gastos, ...d.entradas]).filter((g) => g.meu);
   const usados = new Set();
@@ -812,7 +907,10 @@ async function avaliarImportados() {
       if (achar(t, (x) => x.data === f.venc && (x.descricao || '').startsWith(prefixo))) t.dup = true;
       else t.mover = achar(t, (x) => x.data === t.data && x.origem !== 'manual') || null;
       if (t.mover && !t.compManual) t.compartilhado = t.mover.compartilhado;
-    } else if (achar(t, (x) => x.data === t.data)) t.dup = true;
+    } else {
+      const alvo = ajusteSalario(t)?.data;
+      if (achar(t, (x) => x.data === t.data || (alvo && x.data === alvo))) t.dup = true;
+    }
     t.sel = !t.dup;
   }
 }
@@ -848,7 +946,7 @@ async function salvarImportados() {
       if (mover.length) await api(ENDPOINT[natureza], { method: 'PUT', body: { itens: mover } });
       movidos += mover.length;
     }
-    const mesesImp = [...new Set(sel.map((t) => final(t).data.slice(0, 7)))].sort();
+    const mesesImp = [...new Set(sel.map((t) => (ajusteSalario(final(t))?.data || final(t).data).slice(0, 7)))].sort();
     toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')}${movidos ? ` (${movidos} movidos para o vencimento)` : ''} ✔`);
     state.importados = [];
     state.cache = {};
@@ -1098,7 +1196,9 @@ function interpretarTabela(linhas) {
   // em faturas de cartão (maioria positiva), positivos = compras e negativos = estornos/créditos.
   const semNat = brutos.filter((b) => !b.natureza);
   const negativos = semNat.filter((b) => b.valor < 0).length;
-  const ehFatura = semNat.length > 0 && negativos < semNat.length / 2;
+  // Se algum valor positivo parece receita (salário, Pix recebido…), é extrato — não fatura
+  const ehFatura = semNat.length > 0 && negativos < semNat.length / 2
+    && !semNat.some((b) => b.valor > 0 && PARECE_ENTRADA.test(b.descricao));
   for (const b of semNat) {
     if (ehFatura) b.natureza = b.valor < 0 || PARECE_ENTRADA.test(b.descricao) ? 'entrada' : 'saida';
     else b.natureza = b.valor < 0 ? 'saida' : 'entrada';
@@ -1406,6 +1506,10 @@ function ligarEventos() {
     atualizarResumoImport();
   });
   $('#btn-salvar-import').addEventListener('click', salvarImportados);
+  $('#btn-apagar-meus').addEventListener('click', abrirApagar);
+  $('#form-apagar').addEventListener('change', (e) => (e.target.name === 'confirmacao' ? validarApagar() : previaApagar()));
+  $('#form-apagar').addEventListener('input', validarApagar);
+  $('#form-apagar').addEventListener('submit', confirmarApagar);
   $$('[data-vis-todos]').forEach((b) => b.addEventListener('click', () => {
     const comp = b.dataset.visTodos === 'SIM';
     gravarLS('fc_import_comp', b.dataset.visTodos);

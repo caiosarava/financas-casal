@@ -115,6 +115,7 @@
         </div>
         <p class="sub resumo-lista" id="resumo-lista"></p>
         <ul id="lista-gastos" class="lista"></ul>
+        <button type="button" class="btn-link perigo" id="btn-apagar-meus">🗑️ Apagar meus lançamentos…</button>
       </section>
 
       <!-- Metas -->
@@ -198,6 +199,7 @@
       <label>Data
         <input type="date" name="data" required>
       </label>
+      <p class="aviso-regra hidden" id="aviso-regra"></p>
       <label>Descrição (opcional)
         <input name="descricao" maxlength="200" placeholder="Ex.: compra da semana" id="inp-descricao">
       </label>
@@ -216,6 +218,32 @@
   </dialog>
 
   <!-- ===== Modal: meta / aporte ===== -->
+  <dialog id="dlg-apagar" class="sheet">
+    <form id="form-apagar" method="dialog">
+      <h3>🗑️ Apagar meus lançamentos</h3>
+      <p class="sub">Apaga apenas os lançamentos registrados por você. Os da outra pessoa não são afetados.</p>
+      <fieldset class="visibilidade">
+        <legend>Período</legend>
+        <label class="radio"><input type="radio" name="periodo" value="mes" checked> <span id="apagar-mes-label">Só este mês</span></label>
+        <label class="radio"><input type="radio" name="periodo" value="todos"> Todos os meses</label>
+      </fieldset>
+      <fieldset class="visibilidade">
+        <legend>O que apagar</legend>
+        <label class="radio"><input type="checkbox" name="gastos" checked> 💸 Gastos</label>
+        <label class="radio"><input type="checkbox" name="entradas" checked> 💰 Entradas</label>
+      </fieldset>
+      <p class="apagar-previa" id="apagar-previa">Calculando…</p>
+      <label>Para confirmar, digite <b>APAGAR</b>
+        <input name="confirmacao" autocomplete="off" autocapitalize="characters" placeholder="APAGAR">
+      </label>
+      <p class="erro" id="apagar-erro"></p>
+      <div class="acoes">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn perigo-cheio" id="btn-confirmar-apagar" disabled>Apagar</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="dlg-meta" class="sheet">
     <form id="form-meta" method="dialog">
       <h3 id="dlg-meta-titulo"></h3>

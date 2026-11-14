@@ -1,6 +1,6 @@
 // Service worker: cache do "app shell" para abrir rápido e funcionar como app instalado.
-const CACHE = 'financas-v9';
-const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/vendor/chart.umd.min.js'];
+const CACHE = 'financas-v10';
+const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/regras.js', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/vendor/chart.umd.min.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
