@@ -13,7 +13,7 @@ const SCHEMA = {
   required: ['banco', 'tipo_documento', 'vencimento', 'transacoes'],
   properties: {
     banco: { type: 'string', description: 'Nome do banco ou emissor do cartão, se identificável.' },
-    tipo_documento: { type: 'string', enum: ['extrato_bancario', 'fatura_cartao', 'outro'] },
+    tipo_documento: { type: 'string', enum: ['extrato_bancario', 'fatura_cartao', 'holerite', 'outro'] },
     vencimento: { type: 'string', description: 'Data de vencimento da fatura do cartão (AAAA-MM-DD); string vazia se não for fatura ou se não for possível identificar.' },
     transacoes: {
       type: 'array',
@@ -61,6 +61,12 @@ Layouts comuns (ex.: Santander, Itaú, Bradesco, Banco do Brasil):
 - Extrato do app Santander: cada movimentação ocupa três linhas — tipo acima ("Pix enviado", "Pagamento de boleto outros bancos",
   "Debito visa electron brasil"), data com valor e saldo no meio, e o nome do favorecido abaixo. Combine tipo e nome na descrição
   (ex.: "Pix enviado - Fulano"). Valores podem usar espaço como separador de milhar (R$ 1 600,00). "Liquido de vencimento" é salário.
+
+Demonstrativo de pagamento (holerite/contracheque): tipo_documento "holerite". Gere UMA entrada "Salário" com o
+valor do TOTAL LÍQUIDO na data de pagamento ("Dt. pagt."), descrição "Salário líquido - <empresa> (ref. MM/AAAA)".
+Descontos de consumo (plano de saúde/assistência médica, odontológica, coparticipação, seguro de vida, previdência privada,
+empréstimo consignado, contribuições, vale-transporte, refeição) viram saídas na mesma data com descrição "<desconto> (desconto em folha)".
+NÃO inclua proventos brutos, INSS, IRRF, FGTS, bases de cálculo nem "salário contratual/nominal".
 
 Regras gerais:
 - Compras parceladas: registre só a parcela cobrada neste documento; acrescente "(parcela X/Y)" à descrição.

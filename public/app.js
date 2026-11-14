@@ -159,7 +159,7 @@ function entrarNoApp() {
 }
 
 // ---------- Navegação ----------
-const TITULOS = { inicio: 'Início', gastos: 'Lançamentos', metas: 'Metas do ano', importar: 'Importar extrato' };
+const TITULOS = { inicio: 'Início', gastos: 'Lançamentos', metas: 'Cofrinhos', importar: 'Importar extrato' };
 function irPara(view) {
   state.view = TITULOS[view] ? view : 'inicio';
   $$('.view').forEach((v) => v.classList.toggle('hidden', v.id !== `view-${state.view}`));
@@ -358,19 +358,6 @@ function desenhar(nome, canvas, config) {
   state.charts[nome] = new Chart(canvas, config);
 }
 
-async function renderMetasMini() {
-  try {
-    if (!state.metas || state.metas.ano !== String(state.ano)) state.metas = await api(`/api/metas?ano=${state.ano}`);
-  } catch { return; }
-  const m = state.metas;
-  const bloco = (titulo, r) => {
-    const pct = r.meta ? Math.min(100, (r.guardado / r.meta) * 100) : 0;
-    return `<div style="margin-top:8px"><div class="meta-num"><span>${titulo}</span><span><b style="font-size:.95rem">${fmt(r.guardado)}</b> / ${r.meta ? fmt(r.meta) : 'sem meta'}</span></div>
-      <div class="progresso"><div style="width:${pct}%"></div></div></div>`;
-  };
-  $('#card-metas-mini').innerHTML = `<h3>🎯 Metas de ${m.ano}</h3>${bloco('👫 Casal', m.casal)}${bloco(`🙋 ${esc(state.user.nome)}`, m.individual)}`;
-  $('#card-metas-mini').onclick = () => irPara('metas');
-}
 
 // ---------- Lista ----------
 async function renderLista() {
@@ -415,7 +402,7 @@ async function renderLista() {
     html += `<li class="item" data-id="${esc(g.id)}" data-n="${g.natureza}">
       <span class="emoji" style="background:${corPessoa(g.usuario)}22">${emojiDe(g.tipo)}</span>
       <span class="info"><b>${esc(g.descricao || g.tipo)}</b>
-        <small>${esc(g.tipo)} · ${esc(nomeDe(g.usuario))}${g.compartilhado ? '' : '<span class="badge">🔒 só eu</span>'}${g.origem === 'pdf' || g.origem === 'planilha' ? '<span class="badge">importado</span>' : ''}</small></span>
+        <small>${esc(g.tipo)} · ${esc(nomeDe(g.usuario))}${g.compartilhado ? '' : '<span class="badge">🔒 só eu</span>'}${g.origem === 'folha' ? '<span class="badge">folha</span>' : g.origem === 'pdf' || g.origem === 'planilha' ? '<span class="badge">importado</span>' : ''}</small></span>
       <span class="valor ${entrada ? 'pos' : ''}">${entrada ? '+' : '−'}${fmt(g.valor)}</span></li>`;
   }
   ul.innerHTML = html;
@@ -698,57 +685,172 @@ function renderAnalise(el, a) {
     <small class="rodape-ia">Análise gerada por IA (${esc(a.modelo)}). Confira os valores antes de tomar decisões.</small>`;
 }
 
-// ---------- Metas ----------
-async function renderMetas() {
-  $('#ano-label').textContent = state.ano;
-  const box = $('#metas-conteudo');
-  try {
-    state.metas = await api(`/api/metas?ano=${state.ano}`);
-  } catch (e) { toast(e.message); return; }
-  const m = state.metas;
-  const anoAtual = Number(m.ano) === new Date().getFullYear();
-  const mesesRestantes = anoAtual ? 12 - new Date().getMonth() : (Number(m.ano) > new Date().getFullYear() ? 12 : 0);
-  const card = (escopo, titulo, r) => {
-    const pct = r.meta ? (r.guardado / r.meta) * 100 : 0;
-    const falta = Math.max(0, r.meta - r.guardado);
-    const dica = r.meta && falta > 0 && mesesRestantes > 0
-      ? `Faltam ${fmt(falta)} — cerca de ${fmt(falta / mesesRestantes)} por mês até dezembro.`
-      : r.meta && falta === 0 ? '🎉 Meta atingida! Parabéns!' : 'Defina uma meta para acompanhar o progresso.';
-    return `<div class="card meta-card">
-      <h3><span>${titulo}</span><span class="sub" style="margin:0">${r.meta ? `${pct.toFixed(0)}%` : ''}</span></h3>
-      <div class="meta-num"><span>Guardado<br><b>${fmt(r.guardado)}</b></span><span style="text-align:right">Meta ${m.ano}<br><b>${r.meta ? fmt(r.meta) : '—'}</b></span></div>
-      <div class="progresso" role="progressbar" aria-valuenow="${pct.toFixed(0)}" aria-valuemin="0" aria-valuemax="100"><div style="width:${Math.min(100, pct)}%"></div></div>
-      <p class="sub">${dica}</p>
-      <div class="meta-acoes">
-        <button class="btn" data-acao="meta" data-escopo="${escopo}">${r.meta ? 'Alterar meta' : 'Definir meta'}</button>
-        <button class="btn primario" data-acao="aporte" data-escopo="${escopo}">＋ Guardar</button>
-      </div>
-      ${r.aportes.length ? `<ul class="aportes">${r.aportes.map((a) => `<li>
-        <span>${a.data.split('-').reverse().join('/')} · ${esc(nomeDe(a.usuario))}${a.obs ? ` · ${esc(a.obs)}` : ''}</span>
-        <span><b>${fmt(a.valor)}</b>${a.meu ? `<button data-del="${esc(a.id)}" aria-label="Excluir aporte">✕</button>` : ''}</span></li>`).join('')}</ul>` : ''}
-    </div>`;
-  };
-  box.innerHTML = card('casal', '👫 Meta do casal', m.casal) + `<div style="height:12px"></div>` + card('individual', `🙋 Minha meta (${esc(state.user.nome)})`, m.individual);
-  $$('[data-acao]', box).forEach((b) => b.addEventListener('click', () => abrirMeta(b.dataset.acao, b.dataset.escopo)));
-  $$('[data-del]', box).forEach((b) => b.addEventListener('click', async () => {
-    if (!confirm('Excluir este valor guardado?')) return;
-    try { await api(`/api/metas?id=${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' }); toast('Excluído'); renderMetas(); } catch (e) { toast(e.message); }
-  }));
+// ---------- Cofrinhos (metas do casal e individuais) ----------
+const EMOJIS_COFRE = ['🐷', '✈️', '🏠', '🚗', '🎓', '💍', '👶', '🏖️', '🛟', '🎮', '💻', '🐶', '🎁', '💰'];
+
+async function carregarCofrinhos(forcar = false) {
+  if (!state.metas || forcar) state.metas = await api('/api/metas');
+  return Array.isArray(state.metas?.cofrinhos) ? state.metas.cofrinhos : [];
 }
 
-function abrirMeta(acao, escopo) {
+// Quanto falta por mês até o prazo (ou null)
+function ritmoCofre(c) {
+  if (!c.meta || !c.prazo || c.guardado >= c.meta) return null;
+  const hojeIso = hoje();
+  if (c.prazo <= hojeIso) return { atrasado: true };
+  const [a1, m1] = hojeIso.split('-').map(Number);
+  const [a2, m2] = c.prazo.split('-').map(Number);
+  const meses = Math.max(1, (a2 - a1) * 12 + (m2 - m1));
+  return { meses, porMes: (c.meta - c.guardado) / meses };
+}
+const prazoCurto = (iso) => {
+  const t = new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', '').replace(' de ', '/');
+  return t;
+};
+
+function cardCofre(c) {
+  const pct = c.meta ? Math.min(100, (c.guardado / c.meta) * 100) : 0;
+  const r = ritmoCofre(c);
+  const linha2 = c.meta
+    ? (c.guardado >= c.meta ? '🎉 Meta atingida!' : `${pct.toFixed(0)}% de ${fmt(c.meta)}${c.prazo ? ` · até ${prazoCurto(c.prazo)}` : ''}`)
+    : 'Sem meta definida';
+  return `<button class="cofre" data-cofre="${esc(c.id)}">
+    <span class="cofre-emoji">${esc(c.emoji)}</span>
+    <span class="cofre-info"><b>${esc(c.nome)}</b><strong>${fmt(c.guardado)}</strong>
+      ${c.meta ? `<span class="progresso"><span style="width:${pct}%"></span></span>` : ''}
+      <small>${linha2}</small>
+      ${r && !r.atrasado ? `<small>${fmt(r.porMes)}/mês para chegar lá</small>` : r?.atrasado ? '<small class="erro" style="margin:0">Prazo vencido</small>' : ''}
+    </span></button>`;
+}
+
+async function renderMetas() {
+  let cofres;
+  try { cofres = await carregarCofrinhos(true); } catch (e) { toast(e.message); return; }
+  const casal = cofres.filter((c) => c.escopo === 'casal');
+  const meus = cofres.filter((c) => c.escopo === 'individual');
+  const soma = (l) => l.reduce((s, c) => s + c.guardado, 0);
+  $('#cofre-total').textContent = fmt(soma(cofres));
+  $('#cofre-total-sub').textContent = `👫 casal ${fmt(soma(casal))} · 🙋 meus ${fmt(soma(meus))}`;
+  const vazio = (escopo) => `<button class="cofre cofre-novo" data-novo-cofre="${escopo}"><span class="cofre-emoji">＋</span><span class="cofre-info"><b>Criar cofrinho</b><small>${escopo === 'casal' ? 'Ex.: viagem, reserva de emergência, casa' : 'Ex.: curso, presente, aquele gadget'}</small></span></button>`;
+  $('#cofres-casal').innerHTML = casal.map(cardCofre).join('') + vazio('casal');
+  $('#cofres-meus').innerHTML = meus.map(cardCofre).join('') + vazio('individual');
+  $$('#view-metas [data-cofre]').forEach((b) => b.addEventListener('click', () => abrirCofre(b.dataset.cofre)));
+  $$('#view-metas [data-novo-cofre]').forEach((b) => b.addEventListener('click', () => abrirFormCofre(null, b.dataset.novoCofre)));
+}
+
+async function renderMetasMini() {
+  let cofres;
+  try { cofres = await carregarCofrinhos(); } catch { return; }
+  const total = cofres.reduce((s, c) => s + c.guardado, 0);
+  const destaque = [...cofres].sort((a, b) => (b.meta ? b.guardado / b.meta : 0) - (a.meta ? a.guardado / a.meta : 0) || b.guardado - a.guardado).slice(0, 3);
+  $('#card-metas-mini').innerHTML = `<h3>🐷 Cofrinhos · ${fmt(total)}</h3>${destaque.length ? destaque.map((c) => {
+    const pct = c.meta ? Math.min(100, (c.guardado / c.meta) * 100) : 0;
+    return `<div style="margin-top:8px"><div class="meta-num"><span>${esc(c.emoji)} ${esc(c.nome)}${c.escopo === 'casal' ? '' : ' <span class="badge">só eu</span>'}</span>
+      <span><b style="font-size:.95rem">${fmt(c.guardado)}</b>${c.meta ? ` / ${fmt(c.meta)}` : ''}</span></div>
+      ${c.meta ? `<div class="progresso"><div style="width:${pct}%"></div></div>` : ''}</div>`;
+  }).join('') : '<p class="sub">Crie cofrinhos para guardar dinheiro para seus objetivos.</p>'}`;
+  $('#card-metas-mini').onclick = () => irPara('metas');
+}
+
+function abrirCofre(id) {
+  const c = state.metas.cofrinhos.find((x) => x.id === id);
+  if (!c) return;
+  state.cofreAberto = id;
+  const pct = c.meta ? Math.min(100, (c.guardado / c.meta) * 100) : 0;
+  const r = ritmoCofre(c);
+  $('#cofre-detalhe').innerHTML = `
+    <div class="cofre-topo"><span class="cofre-emoji grande">${esc(c.emoji)}</span>
+      <div><h3 style="margin:0">${esc(c.nome)}</h3><small class="sub">${c.escopo === 'casal' ? '👫 Cofrinho do casal' : '🔒 Só seu'}</small></div></div>
+    <div class="meta-num"><span>Guardado<br><b>${fmt(c.guardado)}</b></span><span style="text-align:right">Meta<br><b>${c.meta ? fmt(c.meta) : '—'}</b></span></div>
+    ${c.meta ? `<div class="progresso"><div style="width:${pct}%"></div></div>` : ''}
+    <p class="sub">${c.meta && c.guardado >= c.meta ? '🎉 Meta atingida! Parabéns!'
+    : c.meta ? `Faltam ${fmt(Math.max(0, c.meta - c.guardado))}${r && !r.atrasado ? ` — cerca de ${fmt(r.porMes)} por mês até ${prazoCurto(c.prazo)}` : r?.atrasado ? ' — o prazo já passou' : ''}.`
+      : 'Defina uma meta para acompanhar o progresso.'}</p>
+    <div class="meta-acoes">
+      <button type="button" class="btn" data-mov="resgate" ${c.guardado > 0 ? '' : 'disabled'}>↩ Resgatar</button>
+      <button type="button" class="btn primario" data-mov="aporte">＋ Guardar</button>
+    </div>
+    ${c.movimentos.length ? `<ul class="aportes">${c.movimentos.map((m) => `<li>
+      <span>${dataBR(m.data)} · ${esc(nomeDe(m.usuario))}${m.obs ? ` · ${esc(m.obs)}` : ''}</span>
+      <span><b class="${m.valor < 0 ? 'neg' : ''}">${m.valor < 0 ? '−' : '+'}${fmt(Math.abs(m.valor))}</b>${m.meu ? `<button type="button" data-del-mov="${esc(m.id)}" aria-label="Excluir movimentação">✕</button>` : ''}</span></li>`).join('')}</ul>`
+    : '<p class="sub">Nenhuma movimentação ainda.</p>'}
+    <div class="acoes" style="margin-top:12px">
+      <button type="button" class="btn perigo" data-apagar-cofre>Apagar</button>
+      <button type="button" class="btn" data-editar-cofre>Editar</button>
+      <button type="button" class="btn" data-fechar>Fechar</button>
+    </div>`;
+  const dlg = $('#dlg-cofre');
+  $$('[data-mov]', dlg).forEach((b) => b.addEventListener('click', () => abrirMovimento(c, b.dataset.mov)));
+  $$('[data-del-mov]', dlg).forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Excluir esta movimentação?')) return;
+    try { await api(`/api/metas?id=${encodeURIComponent(b.dataset.delMov)}`, { method: 'DELETE' }); toast('Excluída'); await recarregarCofre(); } catch (e) { toast(e.message); }
+  }));
+  $('[data-editar-cofre]', dlg).addEventListener('click', () => { dlg.close(); abrirFormCofre(c); });
+  $('[data-apagar-cofre]', dlg).addEventListener('click', async () => {
+    const msg = c.guardado > 0
+      ? `Apagar o cofrinho "${c.nome}" e todas as ${c.movimentos.length} movimentações (${fmt(c.guardado)} guardados)? Isto não pode ser desfeito.`
+      : `Apagar o cofrinho "${c.nome}"?`;
+    if (!confirm(msg)) return;
+    try {
+      await api(`/api/metas?cofrinho=${encodeURIComponent(c.id)}&confirmar=1`, { method: 'DELETE' });
+      dlg.close(); toast('Cofrinho apagado'); state.metas = null; renderMetas();
+    } catch (e) { toast(e.message); }
+  });
+  $('[data-fechar]', dlg).addEventListener('click', () => dlg.close());
+  if (!dlg.open) dlg.showModal();
+}
+
+async function recarregarCofre() {
+  await carregarCofrinhos(true);
+  renderMetas();
+  if (state.cofreAberto && $('#dlg-cofre').open) abrirCofre(state.cofreAberto);
+}
+
+function abrirFormCofre(c, escopo = 'casal') {
+  const f = $('#form-cofre');
+  f.reset();
+  $('#cofre-erro').textContent = '';
+  f.id.value = c?.id || '';
+  f.nome.value = c?.nome || '';
+  f.emoji.value = c?.emoji || '🐷';
+  f.meta.value = c?.meta ? String(c.meta.toFixed(2)).replace('.', ',') : '';
+  f.prazo.value = c?.prazo || '';
+  const esc0 = c ? c.escopo : escopo;
+  $$('input[name=escopo]', f).forEach((r) => { r.checked = r.value === esc0; r.disabled = Boolean(c); });
+  $('#form-cofre-titulo').textContent = c ? 'Editar cofrinho' : 'Novo cofrinho';
+  $('#emojis-cofre').innerHTML = EMOJIS_COFRE.map((e) => `<button type="button" data-emoji="${e}" class="${e === f.emoji.value ? 'on' : ''}">${e}</button>`).join('');
+  $$('#emojis-cofre button').forEach((b) => b.addEventListener('click', () => {
+    f.emoji.value = b.dataset.emoji;
+    $$('#emojis-cofre button').forEach((x) => x.classList.toggle('on', x === b));
+  }));
+  $('#dlg-cofre-form').showModal();
+  setTimeout(() => f.nome.focus(), 50);
+}
+
+async function salvarFormCofre(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  const meta = f.meta.value.trim() ? parseValor(f.meta.value) : 0;
+  if (!f.nome.value.trim()) { $('#cofre-erro').textContent = 'Dê um nome ao cofrinho.'; return; }
+  if (!(meta >= 0)) { $('#cofre-erro').textContent = 'Meta inválida.'; return; }
+  const body = { nome: f.nome.value.trim(), emoji: f.emoji.value, meta, prazo: f.prazo.value };
+  try {
+    if (f.id.value) await api('/api/metas', { method: 'POST', body: { acao: 'editar', id: f.id.value, ...body } });
+    else await api('/api/metas', { method: 'POST', body: { acao: 'criar', escopo: $('input[name=escopo]:checked', f).value, ...body } });
+    $('#dlg-cofre-form').close();
+    toast(f.id.value ? 'Cofrinho atualizado ✔' : 'Cofrinho criado 🐷');
+    await recarregarCofre();
+  } catch (e) { $('#cofre-erro').textContent = e.message; }
+}
+
+function abrirMovimento(c, acao) {
   const f = $('#form-meta');
   f.reset();
   $('#meta-erro').textContent = '';
   f.acao.value = acao;
-  f.escopo.value = escopo;
+  f.cofrinho.value = c.id;
   f.data.value = hoje();
-  const r = escopo === 'casal' ? state.metas.casal : state.metas.individual;
-  if (acao === 'meta' && r.meta) f.valor.value = String(r.meta.toFixed(2)).replace('.', ',');
-  $$('.so-aporte', f).forEach((el) => el.classList.toggle('hidden', acao !== 'aporte'));
-  $('#dlg-meta-titulo').textContent = acao === 'meta'
-    ? `Meta ${escopo === 'casal' ? 'do casal' : 'individual'} para ${state.ano}`
-    : `Guardar dinheiro (${escopo === 'casal' ? 'casal' : 'individual'})`;
+  $('#dlg-meta-titulo').textContent = acao === 'resgate' ? `↩ Resgatar de ${c.emoji} ${c.nome}` : `＋ Guardar em ${c.emoji} ${c.nome}`;
   $('#dlg-meta').showModal();
   setTimeout(() => f.valor.focus(), 50);
 }
@@ -759,14 +861,10 @@ async function salvarMeta(ev) {
   const valor = parseValor(f.valor.value);
   if (!(valor > 0)) { $('#meta-erro').textContent = 'Informe um valor maior que zero.'; return; }
   try {
-    await api('/api/metas', {
-      method: 'POST',
-      body: { acao: f.acao.value, escopo: f.escopo.value, valor, ano: state.ano, data: f.data.value, obs: f.obs.value.trim() },
-    });
+    await api('/api/metas', { method: 'POST', body: { acao: f.acao.value, cofrinho: f.cofrinho.value, valor, data: f.data.value, obs: f.obs.value.trim() } });
     $('#dlg-meta').close();
-    toast(f.acao.value === 'meta' ? 'Meta salva ✔' : 'Valor guardado ✔ 💰');
-    state.metas = null;
-    renderMetas();
+    toast(f.acao.value === 'resgate' ? 'Valor resgatado ✔' : 'Valor guardado ✔ 💰');
+    await recarregarCofre();
   } catch (e) { $('#meta-erro').textContent = e.message; }
 }
 
@@ -796,7 +894,14 @@ async function importarPdf(file) {
     const linhas = pdf ? null : await lerPlanilha(file);
     if (linhas && !linhas.length) throw new Error('A planilha está vazia.');
     const local = () => (pdf ? lerPdfLocal(file) : interpretarTabela(linhas));
-    if (state.config.iaHabilitada) {
+    if (pdf) {
+      carregando(false); // a leitura pode pedir a senha do PDF
+      resultado = await lerHoleriteLocal(file).catch(() => null);
+      carregando(true);
+    }
+    if (resultado) {
+      // demonstrativo de pagamento lido localmente
+    } else if (state.config.iaHabilitada) {
       try {
         const body = pdf
           ? { pdf: await lerBase64(file) }
@@ -837,9 +942,11 @@ async function importarPdf(file) {
   $('#btn-analise-import').textContent = '✨ Analisar este extrato com IA (Gemini)';
   const visPadrao = lerLS('fc_import_comp') !== 'NAO';
   state.importados = resultado.transacoes.map((t) => ({
-    ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: pdf ? 'pdf' : 'planilha',
+    ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: t.origem || (pdf ? 'pdf' : 'planilha'),
     compartilhado: visPadrao, compManual: false,
   }));
+  $('#import-holerite').classList.toggle('hidden', resultado.tipoDocumento !== 'holerite');
+  $('#import-compensar').checked = false;
 
   // Fatura de cartão: por padrão tudo vai para o mês de vencimento
   const fatura = resultado.tipoDocumento === 'fatura_cartao';
@@ -886,6 +993,7 @@ function renderImportados() {
       </select>
       <select data-k="tipo" class="desc" aria-label="Tipo">${opcoes(catsDe(t.natureza), t.tipo)}</select>
       ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe lançamento com mesmo valor)</small>' : ''}
+      ${t.nota ? `<small class="sub desc" style="margin:0">📄 ${esc(t.nota)}</small>` : ''}
       ${ajusteSalario(t) ? `<small class="sub desc" style="margin:0">📅 Salário do último dia útil: será considerado em ${dataBR(ajusteSalario(t).data)}</small>` : ''}
       ${t.mover ? `<small class="sub desc" style="margin:0">↪️ Já importado em ${t.mover.data.split('-').reverse().join('/')} — será movido para o vencimento</small>` : ''}
     </div></li>`).join('');
@@ -931,7 +1039,7 @@ async function avaliarImportados() {
       const alvo = ajusteSalario(t)?.data;
       if (achar(t, (x) => x.data === t.data || (alvo && x.data === alvo))) t.dup = true;
     }
-    t.sel = !t.dup;
+    t.sel = !t.dup && t.selPadrao !== false;
   }
 }
 
@@ -951,6 +1059,19 @@ async function salvarImportados() {
   if ($('#import-usar-venc').checked && !f.ativo) { toast('Informe a data de vencimento da fatura.'); return; }
   // No modo fatura, a data passa a ser o vencimento e a data da compra vai para a descrição
   const final = (t) => (f.ativo ? { ...t, data: f.venc, descricao: descricaoFatura(t) } : t);
+  // Holerite: opcionalmente soma à entrada os descontos lançados como gastos (saldo do mês exato)
+  if ($('#import-compensar').checked) {
+    const entradaFolha = sel.find((t) => t.natureza === 'entrada' && t.origem === 'folha');
+    const somaDesc = sel.filter((t) => t.natureza === 'saida' && t.origem === 'folha').reduce((s, t) => s + t.valor, 0);
+    if (entradaFolha && somaDesc) {
+      entradaFolha.valor = Math.round((entradaFolha.valor + somaDesc) * 100) / 100;
+      entradaFolha.descricao = `${entradaFolha.descricao.replace(/^Salário líquido/, 'Salário (líquido + descontos em folha)')}`;
+    }
+  }
+  // Gastos descontados em folha acompanham a data efetiva do salário (ex.: regra do mês seguinte)
+  const entradaRef = sel.find((t) => t.natureza === 'entrada' && t.origem === 'folha');
+  const dataFolha = entradaRef ? (ajusteSalario(entradaRef)?.data || entradaRef.data) : null;
+  if (dataFolha) sel.filter((t) => t.natureza === 'saida' && t.origem === 'folha').forEach((t) => { t.data = dataFolha; });
   const btn = $('#btn-salvar-import');
   btn.disabled = true;
   carregando(true);
@@ -1238,7 +1359,13 @@ function interpretarTabela(linhas) {
 // - junta pedaços de texto "picotados" (ex.: extrato do app Santander: "P" "ix" "e" "nvi" "ad" "o");
 // - separa páginas com DUAS COLUNAS de lançamentos (ex.: detalhamento da fatura Santander);
 // - guarda a posição horizontal de cada caractere, para saber em qual coluna (Valor, Saldo, R$, US$…) está cada número.
-async function extrairPdf(file) {
+const cacheExtracao = new WeakMap();
+function extrairPdf(file) {
+  if (!cacheExtracao.has(file)) cacheExtracao.set(file, extrairPdfSemCache(file).catch((e) => { cacheExtracao.delete(file); throw e; }));
+  return cacheExtracao.get(file);
+}
+
+async function extrairPdfSemCache(file) {
   const pdfjs = await carregarPdfJs();
   const data = await file.arrayBuffer();
   let doc;
@@ -1334,6 +1461,118 @@ async function extrairPdf(file) {
   }
   const texto = paginas.flatMap((pg) => pg.colunas.flatMap((c) => c.map((l) => l.texto))).join('\n');
   return { paginas, texto };
+}
+
+// ----- Demonstrativo de pagamento (holerite / contracheque) -----
+// Gera uma ENTRADA "Salário" com o valor LÍQUIDO na data de pagamento e lista os descontos em folha.
+// Descontos de consumo (plano de saúde, odonto, seguro…) vêm marcados como gastos; impostos (INSS, IRRF)
+// e adiantamentos vêm desmarcados — eles já estão fora do líquido.
+const RE_HOLERITE = /demonstrativo de pagamento|recibo de pagamento|holerite|contracheque|folha de pagamento/i;
+
+async function lerHoleriteLocal(file) {
+  const { paginas, texto } = await extrairPdf(file);
+  if (!RE_HOLERITE.test(texto) || !/l[ií]quido/i.test(texto)) return null;
+  const linhas = paginas.flatMap((pg) => pg.colunas.flat());
+  const norm = (t) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const RE_DIN = /(?<![\d,])\d{1,3}(?:\.\d{3})*,\d{2}(?!\d)/g;
+  const centro = (l, ini, len) => (l.pos[ini] + l.pos[Math.min(ini + len - 1, l.pos.length - 1)]) / 2;
+  const din = (s) => Number(s.replace(/\./g, '').replace(',', '.'));
+
+  // Início (x) de cada "célula" de uma linha: trechos separados por um espaço horizontal grande
+  function inicioCelulas(l) {
+    const xs = [l.pos[0]];
+    for (let k = 1; k < l.pos.length; k++) if (l.pos[k] - l.pos[k - 1] > 15) xs.push(l.pos[k]);
+    return xs;
+  }
+
+  // Valor logo abaixo (ou ao lado) de um rótulo. Em formulários com rótulos lado a lado
+  // ("Total de proventos: Total de descontos: Total líquido:"), o valor de cada rótulo fica na faixa
+  // que vai do início do rótulo até o início do rótulo seguinte (os valores costumam ser alinhados à direita).
+  function valorDoRotulo(reRotulo, reValor) {
+    for (let i = 0; i < linhas.length; i++) {
+      const m = norm(linhas[i].texto).match(reRotulo);
+      if (!m) continue;
+      const resto = linhas[i].texto.slice(m.index + m[0].length).match(new RegExp(`^\\s*:?\\s*(${reValor.source})`));
+      if (resto) return resto[1];
+      const xRotulo = linhas[i].pos[m.index];
+      const celulas = inicioCelulas(linhas[i]);
+      const ini = Math.max(...celulas.filter((x) => x <= xRotulo + 1));
+      const fim = Math.min(...celulas.filter((x) => x > xRotulo + 1), Infinity);
+      const cx = centro(linhas[i], m.index, m[0].length);
+      for (const l of linhas.slice(i + 1, i + 3)) {
+        const achados = [...l.texto.matchAll(new RegExp(reValor.source, 'g'))].map((v) => ({ v: v[0], x: centro(l, v.index, v[0].length) }));
+        const naFaixa = achados.filter((a) => a.x >= ini - 15 && a.x < fim - 2);
+        const escolhido = naFaixa[0] || achados.filter((a) => Math.abs(a.x - cx) < 120).sort((a, b) => Math.abs(a.x - cx) - Math.abs(b.x - cx))[0];
+        if (escolhido) return escolhido.v;
+      }
+    }
+    return null;
+  }
+
+  const liquidoTxt = valorDoRotulo(/total liquido|liquido a receber|valor liquido|liquido do mes|liquido/, /\d{1,3}(?:\.\d{3})*,\d{2}/);
+  if (!liquidoTxt) return null;
+  const liquido = din(liquidoTxt);
+  const ref = valorDoRotulo(/referencia|competencia|mes\/ano/, /\d{2}\/\d{4}/);
+  let data = valorDoRotulo(/dt\.? ?pagt?o?\.?|data (de |do )?pagamento|data (de |do )?credito/, /\d{2}\/\d{2}\/\d{4}/);
+  data = data ? data.split('/').reverse().join('-') : null;
+  if (!data && ref) { const [m, a] = ref.split('/').map(Number); data = new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10); }
+  if (!data) data = hoje();
+  // Empresa: texto logo abaixo do rótulo "Nome da empresa" / "Empresa" / "Empregador"
+  let empresa = '';
+  const iEmp = linhas.findIndex((l) => /nome da empresa|empregador|^empresa/i.test(norm(l.texto)));
+  if (iEmp >= 0 && linhas[iEmp + 1]) empresa = linhas[iEmp + 1].texto.replace(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/, '').replace(/\s+/g, ' ').trim().slice(0, 50);
+
+  // Colunas Provento / Desconto / Resultado (pelo cabeçalho da tabela de rubricas)
+  const iCab = linhas.findIndex((l) => /provento|vencimento/.test(norm(l.texto)) && /desconto/.test(norm(l.texto)));
+  const cols = [];
+  if (iCab >= 0) {
+    const l = linhas[iCab];
+    for (const [nome, re] of [['provento', /proventos?|vencimentos?/g], ['desconto', /descontos?/g], ['resultado', /resultado|liquido|referencia|qtde|quantidade/g]]) {
+      for (const m of norm(l.texto).matchAll(re)) cols.push({ nome, x: centro(l, m.index, m[0].length) });
+    }
+  }
+  const descontos = [];
+  if (iCab >= 0 && cols.some((c) => c.nome === 'desconto')) {
+    for (const l of linhas.slice(iCab + 1)) {
+      if (/total de proventos|total de descontos|totais|total liquido|base c/i.test(norm(l.texto))) break;
+      const valores = [...l.texto.matchAll(RE_DIN)].map((v) => {
+        const cx = centro(l, v.index, v[0].length);
+        const col = cols.reduce((a, c) => (Math.abs(c.x - cx) < Math.abs(a.x - cx) ? c : a));
+        return { valor: din(v[0]), col: col.nome };
+      });
+      const desc = valores.find((v) => v.col === 'desconto');
+      if (!desc || !desc.valor) continue;
+      const nome = l.texto.replace(/^\s*\d{3,6}\s+/, '').replace(RE_DIN, '').replace(/\s+\d{1,3}(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
+      descontos.push({ nome, valor: desc.valor });
+    }
+  }
+
+  const titulo = (s) => s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+  const transacoes = [{
+    data, valor: liquido, natureza: 'entrada', tipo: 'Salário', origem: 'folha',
+    descricao: `Salário líquido${empresa ? ` - ${titulo(empresa)}` : ''}${ref ? ` (ref. ${ref})` : ''}`,
+    nota: 'Valor líquido do demonstrativo',
+  }];
+  for (const d of descontos) {
+    const n = norm(d.nome);
+    const imposto = /\binss\b|irrf|\bir\b|imposto de renda|fgts/.test(n);
+    const adiantamento = /adiant/.test(n);
+    let tipo = categorizar(d.nome, 'saida');
+    if (/medic|unimed|saude|odont|copartic|hospital|amil|hapvida|sulamerica|bradesco sa/.test(n)) tipo = 'Saúde';
+    else if (/seguro/.test(n)) tipo = 'Seguros';
+    else if (/contribui|sindic|negocial|associa|mensalidade sind/.test(n) || imposto) tipo = 'Impostos e taxas';
+    else if (/vale.?transp|\bvt\b/.test(n)) tipo = 'Transporte';
+    else if (/refei|alimenta|\bvr\b|\bva\b/.test(n)) tipo = 'Restaurante';
+    else if (/consignad|emprest/.test(n)) tipo = 'Tarifas e juros';
+    transacoes.push({
+      data, valor: d.valor, natureza: 'saida', tipo, origem: 'folha',
+      descricao: `${titulo(d.nome)} (desconto em folha)`,
+      selPadrao: !(imposto || adiantamento),
+      nota: imposto ? 'Imposto — desmarcado: já está fora do líquido' : adiantamento ? 'Adiantamento — desmarcado: já recebido antes' : 'Desconto em folha',
+    });
+  }
+  const banco = empresa ? titulo(empresa) : 'Demonstrativo de pagamento';
+  return { banco, tipoDocumento: 'holerite', vencimento: '', transacoes, metodo: 'local' };
 }
 
 async function lerPdfLocal(file) {
@@ -1486,7 +1725,6 @@ function ligarEventos() {
     }
   }));
   $('#inp-mes').addEventListener('change', (e) => { if (e.target.value) { mudarMes(e.target.value); atualizarView(); } });
-  $$('[data-ano]').forEach((b) => b.addEventListener('click', () => { state.ano += Number(b.dataset.ano); state.metas = null; renderMetas(); }));
   $$('#filtro-visao button').forEach((b) => b.addEventListener('click', () => {
     state.visao = b.dataset.v;
     gravarLS('fc_visao', state.visao);
@@ -1497,6 +1735,7 @@ function ligarEventos() {
   $('#form-gasto').addEventListener('submit', salvarGasto);
   $('#btn-excluir-gasto').addEventListener('click', excluirGasto);
   $('#form-meta').addEventListener('submit', salvarMeta);
+  $('#form-cofre').addEventListener('submit', salvarFormCofre);
   $$('[data-fechar]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
   $$('dialog').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
   $('#input-pdf').addEventListener('change', (e) => importarPdf(e.target.files[0]));

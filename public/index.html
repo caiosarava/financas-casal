@@ -121,12 +121,15 @@
 
       <!-- Metas -->
       <section id="view-metas" class="view hidden">
-        <div class="mes-nav ano-nav">
-          <button class="icon-btn" data-ano="-1" aria-label="Ano anterior">‹</button>
-          <span id="ano-label"></span>
-          <button class="icon-btn" data-ano="1" aria-label="Próximo ano">›</button>
+        <div class="card destaque">
+          <small>Total guardado</small>
+          <strong id="cofre-total">R$ 0,00</strong>
+          <span class="sub" id="cofre-total-sub"></span>
         </div>
-        <div id="metas-conteudo"></div>
+        <h3 class="titulo-secao">👫 Do casal</h3>
+        <div class="cofres" id="cofres-casal"></div>
+        <h3 class="titulo-secao">🙋 Meus</h3>
+        <div class="cofres" id="cofres-meus"></div>
       </section>
 
       <!-- Importar -->
@@ -159,6 +162,12 @@
                 <small class="sub">Todos os lançamentos vão para esta data; a data da compra fica na descrição, ex.: "Drogasil (compra 05/10)".</small>
               </div>
             </div>
+            <div class="fatura-box hidden" id="import-holerite">
+              <p class="sub" style="margin:6px 0">📄 <b>Demonstrativo de pagamento:</b> a entrada é o salário <b>líquido</b>. Os descontos de consumo
+                (plano de saúde, odonto, seguro…) vêm marcados como gastos; INSS e IRRF vêm desmarcados.</p>
+              <label class="check"><input type="checkbox" id="import-compensar"> Somar à entrada os descontos lançados como gastos
+                (assim o saldo do mês não desconta duas vezes)</label>
+            </div>
             <p class="sub" id="import-resumo"></p>
             <div class="analise hidden" id="import-analise-box">
               <button class="btn largo" id="btn-analise-import">✨ Analisar este extrato com IA (Gemini)</button>
@@ -176,7 +185,7 @@
     <nav class="nav">
       <button data-view="inicio" class="on"><span>📊</span>Início</button>
       <button data-view="gastos"><span>🧾</span>Lançamentos</button>
-      <button data-view="metas"><span>🎯</span>Metas</button>
+      <button data-view="metas"><span>🐷</span>Cofrinhos</button>
       <button data-view="importar"><span>📥</span>Importar</button>
     </nav>
   </div>
@@ -245,18 +254,50 @@
     </form>
   </dialog>
 
+  <dialog id="dlg-cofre" class="sheet">
+    <div class="cofre-dlg" id="cofre-detalhe"></div>
+  </dialog>
+
+  <dialog id="dlg-cofre-form" class="sheet">
+    <form id="form-cofre" method="dialog">
+      <h3 id="form-cofre-titulo">Novo cofrinho</h3>
+      <input type="hidden" name="id">
+      <input type="hidden" name="emoji" value="🐷">
+      <label>Nome
+        <input name="nome" maxlength="40" placeholder="Ex.: Viagem de férias" autocomplete="off">
+      </label>
+      <div class="tipos" id="emojis-cofre"></div>
+      <label>Meta (R$, opcional)
+        <input name="meta" inputmode="decimal" placeholder="0,00" autocomplete="off">
+      </label>
+      <label>Prazo (opcional)
+        <input type="date" name="prazo">
+      </label>
+      <fieldset class="visibilidade">
+        <legend>De quem é?</legend>
+        <label class="radio"><input type="radio" name="escopo" value="casal" checked> 👫 Do casal (os dois veem e guardam)</label>
+        <label class="radio"><input type="radio" name="escopo" value="individual"> 🔒 Só meu</label>
+      </fieldset>
+      <p class="erro" id="cofre-erro"></p>
+      <div class="acoes">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="dlg-meta" class="sheet">
     <form id="form-meta" method="dialog">
       <h3 id="dlg-meta-titulo"></h3>
       <input type="hidden" name="acao">
-      <input type="hidden" name="escopo">
+      <input type="hidden" name="cofrinho">
       <label>Valor (R$)
         <input name="valor" inputmode="decimal" placeholder="0,00" required autocomplete="off">
       </label>
-      <label class="so-aporte">Data
+      <label>Data
         <input type="date" name="data">
       </label>
-      <label class="so-aporte">Observação (opcional)
+      <label>Observação (opcional)
         <input name="obs" maxlength="200" placeholder="Ex.: 13º salário">
       </label>
       <p class="erro" id="meta-erro"></p>

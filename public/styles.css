@@ -221,4 +221,21 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .btn.perigo-cheio:disabled { background: var(--card); opacity: .6; }
 .apagar-previa { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--bg); font-size: .9rem; color: var(--text); }
 .aviso-regra { margin: -4px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--primary-soft); font-size: .85rem; color: var(--text); }
+/* Cofrinhos */
+.titulo-secao { margin: 16px 4px 8px; }
+.cofres { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cofre { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; border: 0; background: var(--card); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); cursor: pointer; color: var(--text); min-width: 0; }
+.cofre-info { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; }
+.cofre-info b { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cofre-info strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.cofre-info small { color: var(--muted); font-size: .75rem; }
+.cofre .progresso { display: block; margin: 2px 0; height: 8px; width: 100%; }
+.cofre .progresso > span { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-2)); border-radius: 999px; }
+.cofre-emoji { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 1.4rem; background: var(--primary-soft); }
+.cofre-emoji.grande { width: 52px; height: 52px; font-size: 1.8rem; }
+.cofre-novo { border: 2px dashed var(--border); box-shadow: none; background: transparent; }
+.cofre-novo .cofre-emoji { background: transparent; color: var(--primary); font-size: 1.6rem; }
+.cofre-dlg { padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
+.cofre-topo { display: flex; gap: 12px; align-items: center; }
+#emojis-cofre button { font-size: 1.2rem; padding: 6px 10px; }
 .inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
