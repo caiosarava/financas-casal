@@ -54,6 +54,13 @@ Layouts comuns (ex.: Santander, Itaú, Bradesco, Banco do Brasil):
 - Em extratos, débitos podem aparecer com "-" no fim (ex.: 189,90-) e a data pode aparecer só na primeira movimentação do dia:
   as linhas seguintes sem data pertencem ao mesmo dia. Ignore "Saldo anterior", "Saldo do dia" e a coluna de saldo.
 - Em compras internacionais, use o valor em R$ (não o valor em US$).
+- Fatura Santander: o "Detalhamento da Fatura" traz, para cada cartão (titular e adicionais), as seções "Pagamento e Demais
+  Créditos", "Parcelamentos" e "Despesas" — inclua todas (as parcelas listadas ali são as cobradas nesta fatura). Ignore
+  "Resumo da Fatura", "Saldo total consolidado de obrigações futuras", "Histórico de Faturas", anuidade com valor 0,00 e números
+  soltos (1 dígito) antes da data, que são apenas marcadores.
+- Extrato do app Santander: cada movimentação ocupa três linhas — tipo acima ("Pix enviado", "Pagamento de boleto outros bancos",
+  "Debito visa electron brasil"), data com valor e saldo no meio, e o nome do favorecido abaixo. Combine tipo e nome na descrição
+  (ex.: "Pix enviado - Fulano"). Valores podem usar espaço como separador de milhar (R$ 1 600,00). "Liquido de vencimento" é salário.
 
 Regras gerais:
 - Compras parceladas: registre só a parcela cobrada neste documento; acrescente "(parcela X/Y)" à descrição.

@@ -847,11 +847,11 @@ const PALAVRAS = [
   ['Tarifas e juros', /\biof\b|tarifa|cesta de servi|pacote de servi|anuidade|juros|encargo|multa|\bmora\b|cheque especial|limite da conta/i],
   ['Impostos e taxas', /\bdarf\b|\bgps\b|\bdas\b|simples nacional|\bipva\b|\biptu\b|licenciamento|detran|tribut|receita federal|prefeitura|sefaz|\bgru\b|\bdae\b|imposto|taxa de lixo/i],
   ['Seguros', /seguro|porto seguro|mapfre|allianz|tokio marine|sulamerica seg|\bhdi\b|liberty|youse|cartao protegido/i],
-  ['iFood', /ifood|ifd\*|rappi|z[eé] delivery|aiqfome|james delivery|delivery much/i],
+  ['iFood', /ifood|ifd\*|\bifd\b|ifd\.|rappi|z[eé] delivery|aiqfome|james delivery|delivery much/i],
   ['Padaria', /padar|panific|confeit|p[aã]es|bakery/i],
   ['Farmácia', /farm[aá]c|drog|raia|pacheco|panvel|pague ?menos|nissei|venancio|sao joao farm/i],
   ['Mercado', /mercad(?!o ?livre|o ?pago)|supermerc|atacad|assa[ií]|carrefour|p[aã]o de a[cç]|zaffari|angeloni|hortifr|sacol[aã]o|a[cç]ougue|big ?bom|condor|savegnago|muffato|giassi|bistek|\bnacional\b|\bdia\b|hiper|mercearia|sendas|guanabara|bretas|tenda atacado|makro|fort atacadista/i],
-  ['Restaurante', /restaur|lanch|pizz|burger|\bbar\b|churrasc|sushi|caf[eé]|outback|mc ?donald|\bbk\b|subway|habib|steakhouse|cantina|pastel|sorvet/i],
+  ['Restaurante', /restaur|lanch|snack|pizz|burger|\bbar\b|churrasc|sushi|caf[eé]|outback|mc ?donald|\bbk\b|subway|habib|steakhouse|cantina|pastel|sorvet/i],
   ['Combustível', /posto|combust|\bshell\b|ipiranga|petrobras|br mania|\bale\b|raizen|gasolina|etanol/i],
   ['Transporte', /uber|\b99\b|99 ?app|99pop|cabify|estacion|pedag|sem parar|conectcar|veloe|metr[oô]|[oô]nibus|bilhete|passagem|\bbrt\b|zul digital|taxi/i],
   ['Contas da casa', /energia|eletric|\bluz\b|cpfl|equatorial|neoenergia|coelba|celpe|cosern|energisa|\blight\b|\benel\b|cemig|copel|celesc|\brge\b|\bceee\b|elektro|\bedp\b|[aá]gua|saneam|sabesp|corsan|sanepar|casan|cedae|copasa|embasa|compesa|caesb|\bdmae\b|\bsaae\b|g[aá]s natural|comg[aá]s|ultragaz|liquig[aá]s|supergasbras|internet|telefon|\bvivo\b|\bclaro\b|\btim\b|\boi\b|\bnet\b|\bsky\b|condom|aluguel|imobili[aá]ria|quinto ?andar|loft/i],
@@ -880,7 +880,7 @@ const CATEGORIA_BANCO = [
   ['Impostos e taxas', /imposto|governo|tribut|taxa/i],
 ];
 const PALAVRAS_E = [
-  ['Salário', /sal[aá]rio|folha|pagto\.? sal|pagamento de sal|cr[eé]dito de sal|pr[oó][- ]?labore|proventos|vencimentos|adiant/i],
+  ['Salário', /sal[aá]rio|folha|l[ií]quido\s?de\s?vencimento|pagto\.? sal|pagamento de sal|cr[eé]dito de sal|pr[oó][- ]?labore|proventos|vencimentos|adiant/i],
   ['Rendimentos', /rendimento|juros|dividend|remunera[cç][aã]o|cdb|cashback/i],
   ['Pix recebido', /pix/i],
   ['Depósito', /dep[oó]sito|\bdep\.?\s/i],
@@ -1093,9 +1093,10 @@ function interpretarTabela(linhas) {
 }
 
 // ----- Leitura de PDF -----
-// Abre o PDF com o pdf.js (pedindo a senha, se houver) e devolve as linhas de cada página com a
-// posição horizontal de cada pedaço de texto. Linhas com dois lançamentos lado a lado (faturas em
-// duas colunas, como a do Santander) são divididas em linhas separadas.
+// Abre o PDF com o pdf.js (pedindo a senha, se houver) e reconstrói as linhas de cada página:
+// - junta pedaços de texto "picotados" (ex.: extrato do app Santander: "P" "ix" "e" "nvi" "ad" "o");
+// - separa páginas com DUAS COLUNAS de lançamentos (ex.: detalhamento da fatura Santander);
+// - guarda a posição horizontal de cada caractere, para saber em qual coluna (Valor, Saldo, R$, US$…) está cada número.
 async function extrairPdf(file) {
   const pdfjs = await carregarPdfJs();
   const data = await file.arrayBuffer();
@@ -1115,160 +1116,213 @@ async function extrairPdf(file) {
       if (senha === null) throw new Error('Importação cancelada: o PDF precisa de senha.');
     }
   }
-  const RE_VALOR_ITEM = /^(-\s?)?(R\$\s?)?\d{1,3}(\.\d{3})*,\d{2}(\s?-|\s?[DC])?$/;
-  const RE_DATA_ITEM = /^(\d{2}[/.-]\d{2}([/.-]\d{2,4})?\b|\d{2} (jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b)/i;
   const paginas = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const { items } = await page.getTextContent();
-    const itens = items.filter((it) => it.str.trim()).map((it) => ({
-      s: it.str.replace(/\s+/g, ' ').trim(), x: it.transform[4], y: it.transform[5], w: it.width || 0,
-    }));
-    // Agrupa por altura (tolerância de 3pt)
-    const porY = new Map();
+    const itens = items
+      // Caracteres de controle/espaços especiais viram espaço (o extrato Santander usa \u0000 como separador de milhar)
+      .map((it) => ({ s: it.str.replace(/[\u0000-\u001f\u007f\u00a0\u2000-\u200b\u202f\u205f\u3000]/g, ' ').replace(/\s+/g, ' ').trim(), x: it.transform[4], y: it.transform[5], w: it.width || 0 }))
+      .filter((it) => it.s)
+      .sort((a, b) => b.y - a.y || a.x - b.x);
+    // Agrupa em linhas pela altura (tolerância de 2,5pt)
+    const linhasBrutas = [];
     for (const it of itens) {
-      const y = Math.round(it.y / 3) * 3;
-      if (!porY.has(y)) porY.set(y, []);
-      porY.get(y).push(it);
+      const atual = linhasBrutas[linhasBrutas.length - 1];
+      if (atual && Math.abs(atual.y - it.y) <= 2.5) atual.itens.push(it);
+      else linhasBrutas.push({ y: it.y, itens: [it] });
     }
-    const linhas = [];
-    for (const [, its] of [...porY.entries()].sort((a, b) => b[0] - a[0])) {
-      its.sort((a, b) => a.x - b.x);
-      // Divide quando aparece uma nova data depois de um valor (segunda coluna de lançamentos)
-      let seg = [];
-      for (const it of its) {
-        const anterior = seg[seg.length - 1];
-        const novaColuna = anterior && RE_DATA_ITEM.test(it.s) && seg.some((x) => RE_VALOR_ITEM.test(x.s)) && it.x - (anterior.x + anterior.w) > 4;
-        if (novaColuna) { linhas.push(seg); seg = []; }
-        seg.push(it);
+    linhasBrutas.forEach((l) => l.itens.sort((a, b) => a.x - b.x));
+
+    // Duas colunas de lançamentos? Procura datas no início de lançamentos em duas posições x distintas
+    const xsDatas = [];
+    for (const l of linhasBrutas) {
+      l.itens.forEach((it, i) => {
+        // Data de lançamento = data seguida de descrição em texto (a parcela "03/10" vem seguida direto do valor)
+        const dataComTexto = /^\d{2}\/\d{2}(\/\d{2,4})? +[a-zà-ú*]/i.test(it.s)
+          || (/^\d{2}\/\d{2}(\/\d{2,4})?$/.test(it.s) && /[a-zà-ú]{2}/i.test(l.itens[i + 1]?.s || ''));
+        if (dataComTexto && l.itens.slice(i + 1).some((o) => /\d,\d{2}$/.test(o.s))) xsDatas.push(it.x);
+      });
+    }
+    let fronteira = null;
+    if (xsDatas.length >= 4) {
+      const ord = [...xsDatas].sort((a, b) => a - b);
+      let maiorSalto = 0;
+      let corte = 0;
+      for (let i = 1; i < ord.length; i++) if (ord[i] - ord[i - 1] > maiorSalto) { maiorSalto = ord[i] - ord[i - 1]; corte = i; }
+      if (maiorSalto > 150 && corte >= 2 && ord.length - corte >= 2) fronteira = ord[corte] - 30;
+    }
+    const montar = (lista, y) => {
+      let texto = '';
+      const pos = [];
+      let fim = null;
+      for (const it of lista) {
+        if (texto && it.x - fim > 1.5) { texto += ' '; pos.push(it.x); }
+        for (let k = 0; k < it.s.length; k++) { texto += it.s[k]; pos.push(it.x + (it.w * k) / it.s.length); }
+        fim = it.x + it.w;
       }
-      if (seg.length) linhas.push(seg);
+      return { texto, pos, y, x0: lista[0].x };
+    };
+    // Cada coluna vira uma sequência de linhas, lida de cima para baixo (coluna esquerda antes da direita)
+    const colunasTexto = fronteira === null
+      ? [linhasBrutas.map((l) => montar(l.itens, l.y))]
+      : [
+        linhasBrutas.map((l) => l.itens.filter((it) => it.x < fronteira)).map((its, i) => (its.length ? montar(its, linhasBrutas[i].y) : null)).filter(Boolean),
+        linhasBrutas.map((l) => l.itens.filter((it) => it.x >= fronteira)).map((its, i) => (its.length ? montar(its, linhasBrutas[i].y) : null)).filter(Boolean),
+      ];
+
+    // Cabeçalhos de tabela (linha sem números com 2+ nomes de coluna) → posição de cada coluna
+    const cabecalhos = [];
+    const TOKENS = [
+      ['credito', /\b(creditos?|entradas?)\b/g], ['debito', /\b(debitos?|saidas?)\b/g], ['saldo', /\bsaldo\b/g],
+      ['valor', /\bvalor\b/g], ['usd', /us\$/g], ['brl', /(^|\s)r\$(?=\s|$)/g],
+    ];
+    for (const col of colunasTexto) {
+      for (const l of col) {
+        const t = l.texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        if (/\d/.test(t)) continue;
+        const achados = [];
+        for (const [nome, re] of TOKENS) for (const m of t.matchAll(re)) {
+          const ini = m.index + (m[0].startsWith(' ') ? 1 : 0);
+          achados.push({ nome, x: (l.pos[ini] + l.pos[Math.min(ini + m[0].trim().length - 1, l.pos.length - 1)]) / 2 });
+        }
+        if (achados.length + (/\bdata\b|\bdescri/.test(t) ? 1 : 0) >= 2) cabecalhos.push(...achados);
+      }
     }
-    // Cabeçalhos de colunas (posição x) para saber se um valor é crédito, débito, saldo, R$ ou US$.
-    // Guarda todas as ocorrências: faturas em duas colunas repetem os cabeçalhos.
-    const centro = (it) => it.x + it.w / 2;
-    const colunas = [];
-    for (const it of itens) {
-      const s = it.s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      if (s.length > 24) continue;
-      let nome = null;
-      if (/^(creditos?|entradas?)\b/.test(s)) nome = 'credito';
-      else if (/^(debitos?|saidas?)\b/.test(s)) nome = 'debito';
-      else if (/^saldo\b/.test(s) && !/anterior/.test(s)) nome = 'saldo';
-      else if (/^(us\$|usd|dolar|valor em us)/.test(s)) nome = 'usd';
-      else if (/^(r\$|valor em r\$|valor \(r\$\)|reais)$/.test(s)) nome = 'brl';
-      if (nome) colunas.push({ nome, x: centro(it) });
-    }
-    paginas.push({ linhas, colunas });
+    paginas.push({ colunas: colunasTexto, cabecalhos });
   }
-  const texto = paginas.flatMap((pg) => pg.linhas.map((l) => l.map((i) => i.s).join(' '))).join('\n');
+  const texto = paginas.flatMap((pg) => pg.colunas.flatMap((c) => c.map((l) => l.texto))).join('\n');
   return { paginas, texto };
 }
 
 async function lerPdfLocal(file) {
   const { paginas, texto } = await extrairPdf(file);
   const fatura = /fatura|limite (total|dispon)|pagamento m[ií]nimo|melhor data de compra/i.test(texto)
-    && !/extrato (de )?conta|conta corrente|saldo anterior/i.test(texto.slice(0, 1500));
-  const mv = texto.match(/venc[a-z]*\D{0,25}(\d{2})[/.-](\d{2})[/.-](\d{2,4})/i);
-  const vencimento = fatura && mv ? `${mv[3].length === 2 ? `20${mv[3]}` : mv[3]}-${mv[2]}-${mv[1]}` : '';
+    && !/extrato (de )?conta|conta corrente|saldo anterior|saldo inicial/i.test(texto.slice(0, 1500));
+  const mv = texto.match(/vencimento[\s\S]{0,160}?\b(\d{2})\/(\d{2})\/(\d{4})\b/i);
+  const vencimento = fatura && mv ? `${mv[3]}-${mv[2]}-${mv[1]}` : '';
   // Ano de referência para datas sem ano: vencimento da fatura ou a data completa mais recente do documento
-  const datasCompletas = [...texto.matchAll(/\b(\d{2})[/.-](\d{2})[/.-](20\d{2})\b/g)].map((m) => `${m[3]}-${m[2]}-${m[1]}`).sort();
-  const ref = vencimento || datasCompletas.pop() || hoje();
+  const datasCompletas = [...texto.matchAll(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/g)].map((m) => `${m[3]}-${m[2]}-${m[1]}`).sort();
+  const ref = vencimento || datasCompletas.pop() || new Date().toISOString().slice(0, 10);
   const refAno = Number(ref.slice(0, 4));
   const refMes = Number(ref.slice(5, 7));
 
-  // Datas "15/10", "15/10/2026", "15.10.26" ou "15 OUT" (Nubank)
+  // Datas "15/10", "15/10/2026", "15.10.26" ou "15 OUT" (Nubank); pode haver um número solto antes (marcador do Santander)
   const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-  const RE_DATA = /^(\d{2})(?:[/.-](\d{2})(?:[/.-](\d{2,4}))?\b| (jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*\.?(?: (\d{4}))?\b)/i;
-  const RE_VALOR = /(-\s?)?(?:R\$\s?)?(\d{1,3}(?:\.\d{3})*,\d{2})(\s?-(?!\d)|\s?[DC]\b)?/g;
-  const RE_VALOR_ITEM = /^(-\s?)?(R\$\s?)?(\d{1,3}(?:\.\d{3})*,\d{2})(\s?-|\s?[DC])?$/;
-  // Seções que listam parcelas FUTURAS (não são cobranças deste mês)
+  const RE_DATA = /^(?:\d\s+)?(\d{2})(?:[/.-](\d{2})(?:[/.-](\d{2,4}))?\b| (jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*\.?(?: (\d{4}))?\b)/i;
+  // Valores: 1.234,56 · 1 234,56 · R$ 94,11 · - R$ 94,11 · 189,90- · 50,00 D
+  // (milhar com espaço só é aceito depois de "R$", para não confundir com a parcela "08/10 192,96")
+  const RE_VALOR = /(-\s?)?(?:R\s?\$\s?(\d{1,3}(?:[. ]?\d{3})*,\d{2})|(?<![\d,])(\d{1,3}(?:\.\d{3})*,\d{2}))(?!\d)(\s?-(?!\s?\d)|\s?[DC]\b)?/g;
   const FUTURO_INI = /pr[oó]xim[ao]s? faturas?|lan[cç]amentos futuros|parcelas? (a vencer|futuras)|compras parceladas.{0,25}pr[oó]xim|saldo (de|do) parcelamento|demonstrativo de parcelamento/i;
   const FUTURO_FIM = /detalhamento|lan[cç]amentos (nacionais|internacionais|do cart|da fatura)|despesas|x{4}|\*{4}|final \d{4}/i;
-  // Linhas informativas de faturas/extratos (resumo, limites, taxas)
-  const INFORMATIVO = /%|pagamento m[ií]nimo|total (a pagar|desta|da fatura|de compras|de cr[eé]ditos|dos lan|geral)|valor (total|m[ií]nimo)|limite|\bcet\b|custo efetivo|melhor data|vencimento|encargos|cota[cç][aã]o|per[ií]odo|^p[aá]gina|ag[eê]ncia|conta:/i;
-  const IGNORAR_PDF = (d) => IGNORAR.test(d) && !/remunera|rendimento/i.test(d)
-    || /pagamento (de |do )?cart[aã]o( de cr[eé]dito)?|pagto\.? cart/i.test(d);
+  const INFORMATIVO = /%|pagamento m[ií]nimo|total (a pagar|desta|da fatura|de compras|de cr[eé]ditos|dos lan|geral|de pagamentos|de encargos|despesas)|valor (total|m[ií]nimo|pago)|limite|\bcet\b|custo efetivo|melhor (data|dia)|vencimento|encargos|cota[cç][aã]o|^p[aá]gina|ag[eê]ncia|conta:|saldo (inicial|final|desta|anterior|total)/i;
+  const CABECALHO_DIA = /^(segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)\b.*\d{4}$|^(data|compra)\b.*\b(descri|valor|saldo|parcela)/i;
+  const IGNORAR_PDF = (d) => (IGNORAR.test(d) && !/remunera|rendimento/i.test(d))
+    || /pagamento (de |do )?cart[aã]o( de)?( cr[eé]dito)?|pagto\.? cart|pgto\.? cart/i.test(d);
 
   const candidatos = [];
-  let futuro = false;
   let ultimaData = null;
-  let linhasDesdeData = 99;
   for (const pg of paginas) {
-    futuro = false;
-    for (const itens of pg.linhas) {
-      const linha = itens.map((i) => i.s).join(' ').replace(/\s+/g, ' ').trim();
-      if (FUTURO_INI.test(linha)) { futuro = true; continue; }
-      if (futuro && FUTURO_FIM.test(linha)) futuro = false;
-      linhasDesdeData++;
-      if (futuro) continue;
+    for (const coluna of pg.colunas) {
+      let futuro = false;
+      let linhasDesdeData = 99;
+      const analisadas = [];
+      for (const l of coluna) {
+        const linha = l.texto;
+        if (FUTURO_INI.test(linha)) { futuro = true; continue; }
+        if (futuro && FUTURO_FIM.test(linha)) futuro = false;
+        linhasDesdeData++;
+        if (futuro || CABECALHO_DIA.test(linha)) continue;
 
-      const md = linha.match(RE_DATA);
-      // Valores com posição: classifica pela coluna (crédito/débito/saldo/US$) quando o cabeçalho existe
-      const valoresItens = itens.filter((i) => RE_VALOR_ITEM.test(i.s)).map((i) => {
-        const m = i.s.match(RE_VALOR_ITEM);
-        const cx = i.x + i.w / 2;
-        let coluna = null;
-        let dist = 90;
-        for (const c of pg.colunas) if (Math.abs(c.x - cx) < dist) { dist = Math.abs(c.x - cx); coluna = c.nome; }
-        return { valor: Number(m[3].replace(/\./g, '').replace(',', '.')), negativo: Boolean(m[1] || /-|D/.test(m[4] || '')), credito: /C/.test(m[4] || ''), coluna };
-      });
-      let valores = valoresItens.length ? valoresItens : [...linha.matchAll(RE_VALOR)].map((m) => ({
-        valor: Number(m[2].replace(/\./g, '').replace(',', '.')), negativo: Boolean(m[1] || /-|D/.test(m[3] || '')), credito: /C/.test(m[3] || ''), coluna: null,
-      }));
-      valores = valores.filter((v) => v.coluna !== 'saldo' && v.coluna !== 'usd');
-      if (!valores.length) continue;
+        // Valores da linha, com a coluna em que estão (pela posição do cabeçalho mais próximo)
+        const valores = [...linha.matchAll(RE_VALOR)].map((m) => {
+          const ini = m.index;
+          const cx = (l.pos[ini] + l.pos[Math.min(ini + m[0].length - 1, l.pos.length - 1)]) / 2;
+          let coluna = null;
+          let dist = 90;
+          for (const c of pg.cabecalhos) if (Math.abs(c.x - cx) < dist) { dist = Math.abs(c.x - cx); coluna = c.nome; }
+          return {
+            valor: Number((m[2] || m[3]).replace(/[. ]/g, '').replace(',', '.')),
+            negativo: Boolean(m[1] || /-|D/.test(m[4] || '')), credito: /C/.test(m[4] || ''), coluna,
+          };
+        }).filter((v) => v.coluna !== 'saldo' && v.coluna !== 'usd');
 
-      let descricao = linha.replace(RE_DATA, '').replace(RE_VALOR, ' ').replace(/\s+/g, ' ').trim();
-      // Parcela no formato 03/10 depois da descrição
-      const mp = descricao.match(/\s(\d{2})\/(\d{2})$/);
-      if (mp && Number(mp[1]) <= Number(mp[2])) descricao = `${descricao.slice(0, mp.index)} - Parcela ${Number(mp[1])}/${Number(mp[2])}`;
-      descricao = descricao.replace(/\b\d{5,}\b/g, '').replace(/\s+/g, ' ').trim(); // nº de documento
-      if (!/[a-zà-ú]{3}/i.test(descricao) || INFORMATIVO.test(linha) || IGNORAR_PDF(descricao)) continue;
+        const md = linha.match(RE_DATA);
+        if (!valores.length) {
+          // Linha só de texto: pode ser título ("Pix enviado") ou nome do favorecido de um lançamento do extrato
+          if (!md && /[a-zà-ú]/i.test(linha) && linha.length >= 2 && !/%|\bsaldo\b|^p[aá]gina|^ag[eê]ncia\s*:|^per[ií]odo\s*:|^titular\s*:/i.test(linha)) {
+            analisadas.push({ tipo: 'texto', y: l.y, texto: linha });
+          }
+          continue;
+        }
 
-      let dia;
-      let mes;
-      let ano;
-      if (md) {
-        dia = Number(md[1]);
-        mes = md[2] ? Number(md[2]) : MESES.indexOf(md[4].toLowerCase().slice(0, 3)) + 1;
-        if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue;
-        const anoTxt = md[3] || md[5];
-        ano = anoTxt ? Number(anoTxt.length === 2 ? `20${anoTxt}` : anoTxt) : (mes > refMes ? refAno - 1 : refAno);
-        ultimaData = { dia, mes, ano };
-        linhasDesdeData = 0;
-      } else if (!fatura && ultimaData && linhasDesdeData <= 6) {
-        // Extratos que mostram a data só na primeira movimentação do dia
-        ({ dia, mes, ano } = ultimaData);
-        linhasDesdeData = 0;
-      } else continue;
+        let descricao = linha.replace(RE_DATA, '').replace(RE_VALOR, ' ').replace(/\s+/g, ' ').trim();
+        const mp = descricao.match(/\s(\d{2})\/(\d{2})$/);
+        if (mp && Number(mp[1]) <= Number(mp[2])) descricao = `${descricao.slice(0, mp.index)} - Parcela ${Number(mp[1])}/${Number(mp[2])}`;
+        descricao = descricao.replace(/\b\d{8,}\b/g, '').replace(/\s+/g, ' ').trim(); // nº de documento
+        if (INFORMATIVO.test(linha)) continue;
 
-      const v = valores[0];
-      let natureza;
-      if (v.coluna === 'credito' || v.credito) natureza = 'entrada';
-      else if (v.coluna === 'debito') natureza = 'saida';
-      else if (fatura) natureza = v.negativo || PARECE_ENTRADA.test(descricao) ? 'entrada' : 'saida';
-      else natureza = null; // decide abaixo pelo conjunto de sinais do extrato
-      candidatos.push({
-        data: `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`,
-        descricao: descricao.slice(0, 150), valor: v.valor, negativo: v.negativo, natureza,
-      });
+        let dia;
+        let mes;
+        let ano;
+        if (md) {
+          dia = Number(md[1]);
+          mes = md[2] ? Number(md[2]) : MESES.indexOf(md[4].toLowerCase().slice(0, 3)) + 1;
+          if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue;
+          const anoTxt = md[3] || md[5];
+          ano = anoTxt ? Number(anoTxt.length === 2 ? `20${anoTxt}` : anoTxt) : (mes > refMes ? refAno - 1 : refAno);
+          ultimaData = { dia, mes, ano };
+          linhasDesdeData = 0;
+        } else if (!fatura && ultimaData && linhasDesdeData <= 6 && /[a-zà-ú]{3}/i.test(descricao)) {
+          ({ dia, mes, ano } = ultimaData); // extratos com a data só na primeira movimentação do dia
+          linhasDesdeData = 0;
+        } else continue;
+
+        const v = valores[0];
+        if (!v.valor) continue;
+        let natureza = null;
+        if (v.coluna === 'credito' || v.credito) natureza = 'entrada';
+        else if (v.coluna === 'debito') natureza = 'saida';
+        else if (fatura) natureza = v.negativo ? 'entrada' : null;
+        analisadas.push({
+          tipo: 'lanc', y: l.y, antes: [], depois: [], descricao,
+          data: `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`,
+          valor: v.valor, negativo: v.negativo, natureza,
+        });
+      }
+      // Extratos com descrição em várias linhas: cada linha de texto vai para o lançamento mais próximo (até 14pt)
+      if (!fatura) {
+        const lancs = analisadas.filter((a) => a.tipo === 'lanc');
+        for (const t of analisadas.filter((a) => a.tipo === 'texto')) {
+          let alvo = null;
+          let dist = 14;
+          for (const a of lancs) if (Math.abs(a.y - t.y) <= dist) { dist = Math.abs(a.y - t.y); alvo = a; }
+          if (alvo) (t.y > alvo.y ? alvo.antes : alvo.depois).push(t.texto.replace(/\s*per[ií]odo:.*$/i, ''));
+        }
+      }
+      for (const a of analisadas.filter((x) => x.tipo === 'lanc')) {
+        const descricao = [...a.antes, a.descricao, ...a.depois].map((s) => s.trim()).filter(Boolean).join(' - ');
+        if (!/[a-zà-ú]{3}/i.test(descricao) || IGNORAR_PDF(descricao)) continue;
+        candidatos.push({ ...a, descricao: descricao.slice(0, 150) });
+      }
     }
   }
-  // Extratos sem colunas de crédito/débito: se houver valores negativos, eles são os débitos
+  // Natureza: faturas → negativos são créditos; extratos → se houver negativos, eles são os débitos
   const temNegativos = candidatos.some((c) => !c.natureza && c.negativo);
   const transacoes = candidatos.map((c) => {
-    const natureza = c.natureza || (temNegativos ? (c.negativo ? 'saida' : 'entrada') : (PARECE_ENTRADA.test(c.descricao) ? 'entrada' : 'saida'));
+    let natureza = c.natureza;
+    if (!natureza && fatura) natureza = PARECE_ENTRADA.test(c.descricao) ? 'entrada' : 'saida';
+    if (!natureza) natureza = temNegativos ? (c.negativo ? 'saida' : 'entrada') : (PARECE_ENTRADA.test(c.descricao) ? 'entrada' : 'saida');
     return { data: c.data, descricao: c.descricao, valor: c.valor, natureza, tipo: categorizar(c.descricao, natureza) };
   });
   const banco = (texto.match(/\b(santander|ita[uú]|bradesco|banco do brasil|caixa|nubank|inter|c6 bank|sicredi|sicoob|btg|xp)\b/i) || [])[1] || '';
   return { banco, tipoDocumento: fatura ? 'fatura_cartao' : 'extrato_bancario', vencimento, transacoes, metodo: 'local' };
 }
 
-// Texto do PDF (já aberto com a senha) para enviar à IA quando ela não consegue ler o arquivo original
+// Texto do PDF (já aberto com a senha, pedaços juntados e colunas separadas) para enviar à IA
 async function textoDoPdf(file) {
   const { paginas } = await extrairPdf(file);
-  return paginas.map((pg, i) => `--- Página ${i + 1} ---\n${pg.linhas.map((l) => l.map((it) => it.s).join('  ')).join('\n')}`).join('\n');
+  return paginas.map((pg, i) => `--- Página ${i + 1} ---\n${pg.colunas.map((c, j) => (pg.colunas.length > 1 ? `[coluna ${j + 1}]\n` : '') + c.map((l) => l.texto).join('\n')).join('\n')}`).join('\n');
 }
 
 // ---------- Eventos ----------
