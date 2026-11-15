@@ -58,7 +58,7 @@ const state = {
   importados: [],
   filtroDono: lerLS('fc_filtro_dono') || 'todos', // Lançamentos: todos | casal | privado
   filtroPessoa: lerLS('fc_filtro_pessoa') || '', // dentro de "Casal": '' = ambos, ou e-mail de quem registrou
-  analises: {},       // cache de análises do Gemini por mês/visão
+  analises: {},       // cache das análises com IA por mês/visão
 };
 
 // Mês em exibição: lembrado durante a sessão (sobrevive a "atualizar a tela")
@@ -798,18 +798,18 @@ async function confirmarApagar(ev) {
   } finally { carregando(false); }
 }
 
-// ---------- Análise com IA (Gemini) ----------
+// ---------- Análise com IA (NVIDIA) ----------
 const chaveAnalise = () => `${state.mes}|${state.visao}`;
 
 function renderCardAnalise() {
   const card = $('#card-analise');
-  card.classList.toggle('hidden', !state.config?.geminiHabilitado);
-  if (!state.config?.geminiHabilitado) return;
+  card.classList.toggle('hidden', !state.config?.analiseIaHabilitada);
+  if (!state.config?.analiseIaHabilitada) return;
   const pronta = state.analises[chaveAnalise()];
   $('#btn-analise-atualizar').classList.toggle('hidden', !pronta);
   if (pronta) renderAnalise($('#analise-mes'), pronta);
   else {
-    $('#analise-mes').innerHTML = `<p class="sub">O Gemini analisa os lançamentos de ${esc(mesLabel(state.mes).toLowerCase())} e aponta assinaturas, parcelamentos, tarifas, cobranças suspeitas e onde economizar.</p>
+    $('#analise-mes').innerHTML = `<p class="sub">A IA analisa os lançamentos de ${esc(mesLabel(state.mes).toLowerCase())} e aponta assinaturas, parcelamentos, tarifas, cobranças suspeitas e onde economizar.</p>
       <button class="btn largo" id="btn-analise-mes">Gerar análise</button>`;
     $('#btn-analise-mes').addEventListener('click', () => analisarMes());
   }
@@ -819,7 +819,7 @@ async function analisarMes(forcar = false) {
   const chave = chaveAnalise();
   if (state.analises[chave] && !forcar) return renderCardAnalise();
   const box = $('#analise-mes');
-  box.innerHTML = '<p class="sub">✨ Analisando os lançamentos com o Gemini…</p><div class="spinner" style="margin:8px auto"></div>';
+  box.innerHTML = '<p class="sub">✨ Analisando os lançamentos com IA…</p><div class="spinner" style="margin:8px auto"></div>';
   try {
     state.analises[chave] = await api('/api/analise', { method: 'POST', body: { modo: 'mes', mes: state.mes, visao: state.visao } });
     if (chave === chaveAnalise()) renderCardAnalise();
@@ -835,7 +835,7 @@ async function analisarImportacao() {
   const box = $('#import-analise');
   const btn = $('#btn-analise-import');
   btn.disabled = true;
-  box.innerHTML = '<p class="sub">✨ Analisando o extrato com o Gemini…</p><div class="spinner" style="margin:8px auto"></div>';
+  box.innerHTML = '<p class="sub">✨ Analisando o extrato com IA…</p><div class="spinner" style="margin:8px auto"></div>';
   try {
     const dados = await api('/api/analise', {
       method: 'POST',
@@ -1131,7 +1131,7 @@ async function importarPdf(file) {
   state.importInfo = { tipoDocumento: resultado.tipoDocumento, vencimento: resultado.vencimento, banco: resultado.banco, nomeArquivo: file.name };
   $('#import-analise').innerHTML = '';
   $('#btn-analise-import').classList.remove('hidden');
-  $('#btn-analise-import').textContent = '✨ Analisar este extrato com IA (Gemini)';
+  $('#btn-analise-import').textContent = '✨ Analisar este extrato com IA';
   const visPadrao = lerLS('fc_import_comp') !== 'NAO';
   state.importados = resultado.transacoes.map((t) => ({
     ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: t.origem || (pdf ? 'pdf' : 'planilha'),
@@ -1195,7 +1195,7 @@ function renderImportados() {
       ${t.mover ? `<small class="sub desc" style="margin:0">↪️ Já importado em ${t.mover.data.split('-').reverse().join('/')} — será movido para o vencimento</small>` : ''}
     </div></li>`).join('');
   $('#import-titulo').textContent = `Revise os lançamentos (${state.importados.length})`;
-  $('#import-analise-box').classList.toggle('hidden', !state.config.geminiHabilitado);
+  $('#import-analise-box').classList.toggle('hidden', !state.config.analiseIaHabilitada);
   atualizarResumoImport();
   $('#import-revisao').classList.remove('hidden');
 }
