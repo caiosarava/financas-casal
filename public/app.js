@@ -177,6 +177,7 @@ function atualizarView() {
   if (state.view === 'inicio') return renderInicio();
   if (state.view === 'gastos') return renderLista();
   if (state.view === 'metas') return renderMetas();
+  if (state.view === 'importar') return renderHistorico();
 }
 
 function mesLabel(mes) {
@@ -891,6 +892,11 @@ async function importarPdf(file) {
   if (!file) return;
   const status = $('#import-status');
   $('#import-revisao').classList.add('hidden');
+  // Impressão digital do arquivo: avisa se ele já foi importado antes
+  state.importArquivo = { nome: file.name, hash: await hashArquivo(file) };
+  const anteriores = (await carregarHistorico().catch(() => [])).filter((h) => h.hash && h.hash === state.importArquivo.hash);
+  avisoArquivoRepetido(anteriores);
+  renderHistorico();
   const pdf = ehPdf(file);
   status.textContent = state.config.iaHabilitada ? '🤖 Lendo o arquivo com IA… isso pode levar até 1 minuto.' : '📄 Lendo o arquivo…';
   carregando(true);
@@ -1098,6 +1104,8 @@ async function salvarImportados() {
     }
     const mesesImp = [...new Set(sel.map((t) => (ajusteSalario(final(t))?.data || final(t).data).slice(0, 7)))].sort();
     toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')}${movidos ? ` (${movidos} movidos para o vencimento)` : ''} ✔`);
+    await registrarNoHistorico(sel);
+    avisoArquivoRepetido([]);
     state.importados = [];
     state.cache = {};
     state.analises = {};
@@ -1107,6 +1115,94 @@ async function salvarImportados() {
     mudarMes(mesesImp[mesesImp.length - 1]);
     irPara('inicio');
   } catch (e) { toast(e.message); } finally { btn.disabled = false; carregando(false); }
+}
+
+// ----- Histórico de importações -----
+async function hashArquivo(file) {
+  try {
+    const dig = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+    return [...new Uint8Array(dig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return ''; }
+}
+
+async function carregarHistorico(forcar = false) {
+  if (!state.historico || forcar) state.historico = (await api('/api/importacoes')).itens;
+  return state.historico;
+}
+
+const TIPO_DOC = {
+  extrato_bancario: ['🏦', 'Extrato'], fatura_cartao: ['💳', 'Fatura do cartão'], holerite: ['📄', 'Demonstrativo de pagamento'], outro: ['📁', 'Arquivo'],
+};
+const dataHora = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+function avisoArquivoRepetido(anteriores) {
+  $('#aviso-repetido')?.remove();
+  if (!anteriores.length) return;
+  const h = anteriores[0];
+  $('#import-status').insertAdjacentHTML('afterend', `<p class="aviso-repetido" id="aviso-repetido">⚠️ Este arquivo já foi importado
+    ${anteriores.length > 1 ? `${anteriores.length} vezes — a última` : ''} em ${dataHora(h.criadoEm)} por ${h.meu ? 'você' : esc(h.nomeUsuario)}.
+    Os lançamentos que já existem vêm desmarcados como duplicados.</p>`);
+}
+
+let historicoCompleto = false;
+async function renderHistorico() {
+  const ul = $('#lista-historico');
+  let itens;
+  try { itens = await carregarHistorico(); } catch (e) { ul.innerHTML = `<li class="erro">${esc(e.message)}</li>`; return; }
+  $('#hist-qtd').textContent = itens.length ? `${itens.length} arquivo${itens.length === 1 ? '' : 's'}` : '';
+  if (!itens.length) { ul.innerHTML = '<li class="sub">Nenhum arquivo importado ainda. Os próximos que você salvar aparecem aqui.</li>'; $('#btn-hist-mais').classList.add('hidden'); return; }
+  const visiveis = historicoCompleto ? itens : itens.slice(0, 15);
+  const hashAtual = state.importArquivo?.hash;
+  ul.innerHTML = visiveis.map((h) => {
+    const [icone, rotulo] = TIPO_DOC[h.tipoDocumento] || TIPO_DOC.outro;
+    const periodo = h.periodoInicio
+      ? (h.periodoInicio === h.periodoFim ? dataBR(h.periodoInicio) : `${dataBR(h.periodoInicio)} a ${dataBR(h.periodoFim)}`) : '';
+    const resumo = h.meu
+      ? [h.gastos.qtd ? `${h.gastos.qtd} gasto${h.gastos.qtd === 1 ? '' : 's'} ${fmt(h.gastos.total)}` : '',
+        h.entradas.qtd ? `${h.entradas.qtd} entrada${h.entradas.qtd === 1 ? '' : 's'} ${fmt(h.entradas.total)}` : '',
+        h.internas.qtd ? `🔁 ${h.internas.qtd} entre contas` : ''].filter(Boolean).join(' · ')
+      : '';
+    return `<li class="hist-item ${hashAtual && h.hash === hashAtual ? 'atual' : ''}">
+      <span class="hist-icone" title="${rotulo}">${icone}</span>
+      <div class="hist-info">
+        <b>${esc(h.nomeArquivo)}</b>
+        <small>${rotulo}${h.banco ? ` · ${esc(h.banco)}` : ''}${periodo ? ` · ${periodo}` : ''}</small>
+        <small>${h.meu ? 'Você' : esc(h.nomeUsuario)} · ${dataHora(h.criadoEm)}</small>
+        ${resumo ? `<small>${resumo}</small>` : ''}
+      </div>
+      ${h.meu ? `<button type="button" data-del-hist="${esc(h.id)}" title="Remover do histórico" aria-label="Remover do histórico">✕</button>` : ''}
+    </li>`;
+  }).join('');
+  $('#btn-hist-mais').classList.toggle('hidden', historicoCompleto || itens.length <= 15);
+  $$('[data-del-hist]', ul).forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Remover este arquivo do histórico?\nOs lançamentos que foram importados NÃO são apagados.')) return;
+    try {
+      await api(`/api/importacoes?id=${encodeURIComponent(b.dataset.delHist)}`, { method: 'DELETE' });
+      state.historico = null;
+      renderHistorico();
+    } catch (e) { toast(e.message); }
+  }));
+}
+
+async function registrarNoHistorico(sel) {
+  if (!state.importArquivo) return;
+  const resumo = (lista) => ({ qtd: lista.length, total: Math.round(lista.reduce((s, t) => s + t.valor, 0) * 100) / 100 });
+  const datas = sel.map((t) => t.data).filter(Boolean).sort();
+  try {
+    await api('/api/importacoes', {
+      method: 'POST',
+      body: {
+        nomeArquivo: state.importArquivo.nome, hash: state.importArquivo.hash,
+        tipoDocumento: state.importInfo?.tipoDocumento, banco: state.importInfo?.banco,
+        periodoInicio: datas[0], periodoFim: datas[datas.length - 1],
+        gastos: resumo(sel.filter((t) => t.natureza === 'saida' && conta(t))),
+        entradas: resumo(sel.filter((t) => t.natureza === 'entrada' && conta(t))),
+        internas: resumo(sel.filter((t) => !conta(t))),
+      },
+    });
+  } catch (e) { console.warn('Não foi possível registrar no histórico:', e.message); }
+  state.historico = null;
+  state.importArquivo = null;
 }
 
 // ----- Leitura local (sem IA) -----
@@ -1811,6 +1907,7 @@ function ligarEventos() {
   });
   $('#btn-salvar-import').addEventListener('click', salvarImportados);
   $('#btn-apagar-meus').addEventListener('click', abrirApagar);
+  $('#btn-hist-mais').addEventListener('click', () => { historicoCompleto = true; renderHistorico(); });
   $('#form-apagar').addEventListener('change', (e) => (e.target.name === 'confirmacao' ? validarApagar() : previaApagar()));
   $('#form-apagar').addEventListener('input', validarApagar);
   $('#form-apagar').addEventListener('submit', confirmarApagar);

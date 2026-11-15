@@ -17,6 +17,7 @@ PWA (web app instalável no Android) para o casal registrar gastos e entradas, a
 | **🐷 Cofrinhos** | Quantos cofrinhos quiser, **do casal** (os dois veem e guardam) ou **só seus**, cada um com nome, emoji, meta e prazo opcionais. **＋ Guardar** e **↩ Resgatar** registram as movimentações; o cofrinho mostra o progresso e quanto guardar por mês para chegar à meta no prazo. A antiga meta anual vira automaticamente o cofrinho "Meta AAAA". |
 | **✨ Análise com IA (Gemini)** | Card no Início que analisa o mês (respeitando o filtro Tudo/Casal/Meus) comparando com o mês anterior, e botão **"Analisar este extrato"** na revisão da importação. Traz resumo, alertas (ex.: parcelamento de fatura com juros, IOF, tarifas, cobranças possivelmente duplicadas), assinaturas recorrentes, parcelamentos em andamento e dicas de economia. |
 | **Importar** | Upload do extrato bancário, fatura do cartão ou **demonstrativo de pagamento (holerite)** em **PDF, CSV, XLS, XLSX ou ODS**. No holerite, a entrada é o **salário líquido** e os descontos em folha de consumo (plano de saúde, odonto, seguro…) viram gastos; INSS/IRRF vêm desmarcados, e uma opção soma os descontos lançados à entrada para o saldo não descontar duas vezes. A IA (Claude) extrai **gastos e entradas** e identifica o tipo de cada um. Você revisa, troca gasto ↔ entrada, ajusta tipos, escolhe **👫 Casal ou 🔒 Só eu em cada lançamento** (ou aplica a todos os selecionados), desmarca duplicados e salva. Sem chave de IA, há leitores locais de reserva (para CSV/XLS eles reconhecem colunas como Data, Histórico/Descrição, Valor ou Débito/Crédito). |
+| **📚 Arquivos já importados** | Na aba Importar, lista de todos os arquivos salvos: tipo (extrato, fatura, holerite), banco, período, quem importou e quando, e — nas suas importações — quantos gastos, entradas e transferências internas entraram. Ao escolher um arquivo que já foi importado, o app avisa na hora (pela impressão digital SHA-256 do arquivo). Remover do histórico não apaga os lançamentos. |
 
 ### 🔁 Transferências internas (entre contas do casal)
 Dinheiro que só **muda de conta** — por exemplo, a Thiane faz um Pix do Santander para o Nubank e depois paga a fatura do Nubank — não é gasto nem entrada. Na importação de **extratos**, o app marca como **"Transferência interna"**:
@@ -46,10 +47,11 @@ api/               → funções serverless da Vercel
   metas.js         → metas anuais e valores guardados
   importar.js      → leitura do extrato (PDF ou planilha convertida em texto) com o Claude
   analise.js       → análise financeira dos lançamentos com o Gemini
+  importacoes.js   → histórico de arquivos importados
 lib/               → autenticação, acesso ao Sheets, categorias
 ```
 
-A planilha usa as abas **Gastos**, **Entradas**, **Cofrinhos**, **Aportes** (movimentações dos cofrinhos) e **Metas** (legado) — as que faltarem são criadas automaticamente no primeiro uso.
+A planilha usa as abas **Gastos**, **Entradas**, **Cofrinhos**, **Aportes** (movimentações dos cofrinhos), **Importacoes** (histórico de arquivos), **Usuarios** (nomes completos) e **Metas** (legado) — as que faltarem são criadas automaticamente no primeiro uso.
 
 ---
 
