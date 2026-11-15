@@ -26,6 +26,15 @@ Dinheiro que só **muda de conta** — por exemplo, a Thiane faz um Pix do Santa
 
 Elas ficam registradas (com ↔ na lista), mas **não entram em gastos, entradas, saldo, gráficos nem na análise do Gemini**. Na revisão, cada linha mostra o motivo e dá para trocar o tipo. Dentro da fatura, o crédito do pagamento continua sendo ignorado e Pix pagos no crédito continuam como gastos.
 
+### 💳 Pagamento parcial e parcelamento de fatura
+Quando a fatura não é paga inteira e o restante é parcelado, as parcelas que vêm nas faturas seguintes ("Parcelamento de fatura k/n") **devolvem compras que já foram contadas como gasto**. Contá-las de novo inflaria os gastos. Por isso o app:
+- cadastra o parcelamento (total da fatura, quanto foi pago, nº e valor das parcelas) e calcula **valor financiado, juros e saldo devedor**;
+- na importação do **extrato**, compara o pagamento da fatura com o total da fatura já importada e avisa **"Pagamento parcial… faltam R$ X"**, oferecendo o cadastro já preenchido;
+- na importação da **fatura**, divide cada parcela em **amortização** (tipo "Parcelamento de fatura", fora dos gastos e do saldo) e **juros** ("Tarifas e juros", conta como gasto), e atualiza quantas parcelas já foram pagas; parcelamentos sem cadastro podem ser cadastrados ali mesmo;
+- mostra no Início o card **💳 Parcelamentos de fatura** com parcelas pagas, quanto falta e os juros.
+
+Ex.: fatura de R$ 1.000, pagos R$ 400, resto em 6× R$ 120 → gastos totais = R$ 1.000 (compras) + R$ 120 (juros), e não R$ 1.720.
+
 ### Regra do salário no mês seguinte (Thiane)
 Uma **entrada do tipo Salário** registrada pela Thiane no **último dia útil do mês** (ou depois dele, em fim de semana/feriado) é considerada no **primeiro dia útil do mês seguinte**; a data original fica na descrição, ex.: "Liquido de vencimento (recebido em 30/10)". Dias úteis consideram fins de semana e feriados bancários nacionais (incluindo Carnaval, Sexta-feira Santa, Corpus Christi e 31/12). A regra é aplicada no servidor ao criar o lançamento (manual ou importado) e aparece como aviso no formulário e na revisão da importação; editar o lançamento depois respeita a data escolhida. Os e-mails da regra ficam em `REGRA_SALARIO_MES_SEGUINTE` (padrão `thianedepra@gmail.com`). Código: `public/regras.js`.
 
@@ -48,6 +57,7 @@ api/               → funções serverless da Vercel
   importar.js      → leitura do extrato (PDF ou planilha convertida em texto) com o Claude
   analise.js       → análise financeira dos lançamentos com o Gemini
   importacoes.js   → histórico de arquivos importados
+  parcelamentos.js → parcelamentos de fatura (pagamento parcial)
 lib/               → autenticação, acesso ao Sheets, categorias
 ```
 

@@ -22,7 +22,7 @@ export default handler(async (req) => {
         return {
           id: String(i.id), criadoEm: String(i.criado_em), usuario: i.usuario, nomeUsuario: nomes[i.usuario] || i.usuario, meu,
           nomeArquivo: i.nome_arquivo, hash: String(i.hash || ''), tipoDocumento: i.tipo_documento, banco: i.banco,
-          periodoInicio: String(i.periodo_inicio || ''), periodoFim: String(i.periodo_fim || ''),
+          periodoInicio: String(i.periodo_inicio || ''), periodoFim: String(i.periodo_fim || ''), vencimento: String(i.vencimento || ''),
           ...(meu ? {
             gastos: { qtd: int(i.qtd_gastos), total: num(i.total_gastos) },
             entradas: { qtd: int(i.qtd_entradas), total: num(i.total_entradas) },
@@ -48,6 +48,7 @@ export default handler(async (req) => {
       qtd_gastos: int(b.gastos?.qtd), total_gastos: num(b.gastos?.total),
       qtd_entradas: int(b.entradas?.qtd), total_entradas: num(b.entradas?.total),
       qtd_internas: int(b.internas?.qtd), total_internas: num(b.internas?.total),
+      vencimento: periodo(b.vencimento),
     };
     await appendRows('Importacoes', [registro]);
     return { id: registro.id };

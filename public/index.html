@@ -68,6 +68,7 @@
             <button class="btn largo entrada-btn" id="btn-nova-entrada">＋ Registrar entrada</button>
           </div>
           <div class="card" id="cards-pessoas"></div>
+          <div class="card hidden" id="card-parcelamentos"></div>
         </div>
 
         <div class="card analise hidden" id="card-analise">
@@ -290,6 +291,41 @@
       <div class="acoes">
         <button type="button" class="btn" data-fechar>Cancelar</button>
         <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-parc" class="sheet">
+    <form id="form-parc" method="dialog">
+      <h3 id="parc-titulo">Pagamento parcial de fatura</h3>
+      <p class="sub" style="margin:0">Quando você paga só parte da fatura e parcela o resto, as parcelas que vêm nas próximas faturas
+        devolvem compras que já foram contadas como gasto. O app separa a <b>amortização</b> (fora dos gastos) dos <b>juros</b> (gasto).</p>
+      <input type="hidden" name="id">
+      <label>Cartão / banco <input name="cartao" maxlength="40" placeholder="Ex.: Nubank, Santander"></label>
+      <div class="campos-2">
+        <label>Vencimento da fatura <input type="date" name="vencimento" required></label>
+        <label>Total da fatura (R$) <input name="totalFatura" inputmode="decimal" placeholder="0,00" required autocomplete="off"></label>
+      </div>
+      <div class="campos-2">
+        <label>Quanto você pagou (R$) <input name="valorPago" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+        <label>Nº de parcelas <input name="parcelas" type="number" min="1" max="48" inputmode="numeric" required></label>
+      </div>
+      <div class="campos-2">
+        <label>Valor de cada parcela (R$) <input name="valorParcela" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+        <label>Parcelas já pagas <input name="parcelasPagas" type="number" min="0" max="48" inputmode="numeric" value="0"></label>
+      </div>
+      <label>Como aparece na fatura (opcional) <input name="rotulo" maxlength="30" placeholder="Ex.: 10/Agosto"></label>
+      <p class="apagar-previa" id="parc-previa"></p>
+      <fieldset class="visibilidade">
+        <legend>Quem pode ver?</legend>
+        <label class="radio"><input type="radio" name="compartilhado" value="SIM" checked> 👫 Casal</label>
+        <label class="radio"><input type="radio" name="compartilhado" value="NAO"> 🔒 Só eu</label>
+      </fieldset>
+      <p class="erro" id="parc-erro"></p>
+      <div class="acoes">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="button" class="btn perigo hidden" id="btn-excluir-parc">Excluir</button>
+        <button type="submit" class="btn primario" id="btn-salvar-parc">Salvar</button>
       </div>
     </form>
   </dialog>

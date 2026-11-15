@@ -6,7 +6,7 @@ const CATS = {
   'Mercado': '🛒', 'Farmácia': '💊', 'Padaria': '🥖', 'iFood': '🛵', 'Restaurante': '🍽️',
   'Transporte': '🚗', 'Combustível': '⛽', 'Contas da casa': '🏠', 'Saúde': '🩺',
   'Lazer': '🎉', 'Compras': '🛍️', 'Assinaturas': '📺', 'Educação': '🎓', 'Impostos e taxas': '🧾',
-  'Seguros': '🛡️', 'Tarifas e juros': '🏦', 'Transferências': '💸', 'Transferência interna': '🔁', 'Outros': '📦',
+  'Seguros': '🛡️', 'Tarifas e juros': '🏦', 'Transferências': '💸', 'Transferência interna': '🔁', 'Parcelamento de fatura': '🧾', 'Outros': '📦',
 };
 const CATS_E = {
   'Salário': '💼', 'Pix recebido': '⚡', 'Depósito': '🏦', 'Transferência': '↪️', 'Rendimentos': '📈', 'Outras entradas': '💵',
@@ -17,7 +17,9 @@ const RAPIDOS_E = ['Salário', 'Pix recebido', 'Depósito', 'Transferência'];
 const ENDPOINT = { saida: '/api/gastos', entrada: '/api/entradas' };
 // Transferência entre contas do próprio casal / pagamento de fatura: registrada, mas fora de gastos, entradas e saldo
 const INTERNA = 'Transferência interna';
-const conta = (g) => g.tipo !== INTERNA;
+// Amortização de parcelamento de fatura: devolve compras já contadas (os juros vão à parte, como gasto)
+const PARC_FATURA = 'Parcelamento de fatura';
+const conta = (g) => g.tipo !== INTERNA && g.tipo !== PARC_FATURA;
 const emojiDe = (tipo) => CATS[tipo] || CATS_E[tipo] || '📦';
 const catsDe = (natureza) => (natureza === 'entrada' ? CATS_E : CATS);
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -347,6 +349,7 @@ async function renderInicio() {
 
   renderMetasMini();
   renderCardAnalise();
+  renderCardParcelamentos();
 }
 
 function desenhar(nome, canvas, config) {
@@ -387,7 +390,7 @@ async function renderLista() {
   const internas = itens.filter((g) => !conta(g));
   $('#resumo-lista').textContent = itens.length
     ? `${itens.length} lançamento${itens.length === 1 ? '' : 's'} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`
-      + (internas.length ? ` · 🔁 ${internas.length} entre contas (fora do saldo)` : '')
+      + (internas.length ? ` · ↔ ${internas.length} fora do saldo (transferências/amortizações)` : '')
     : '';
   if (!itens.length) {
     const pessoa = state.filtroDono === 'casal' && state.filtroPessoa ? ` registrado por ${nomeDe(state.filtroPessoa)}` : '';
@@ -549,6 +552,179 @@ async function excluirGasto() {
     state.analises = {};
     atualizarView();
   } catch (e) { $('#gasto-erro').textContent = e.message; }
+}
+
+// ---------- Parcelamentos de fatura (pagamento parcial) ----------
+// Parcela de "Parcelamento de fatura" = amortização (fora dos gastos: devolve compras já contadas) + juros (gasto).
+const RE_PARC_FATURA = /parcelamento (de |da )?fatura|parc\.? (de )?fatura|financiamento (de |da )?fatura|parcelamento do saldo|fatura parcelada/i;
+
+async function carregarParcelamentos(forcar = false) {
+  if (!state.parcelamentos || forcar) state.parcelamentos = (await api('/api/parcelamentos')).itens;
+  return state.parcelamentos;
+}
+
+const normRotulo = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+
+// Acha o parcelamento cadastrado a que uma parcela "k/n de R$ V" pertence
+function acharParcelamento(lista, { rotulo, n, valor }) {
+  const ativos = lista.filter((p) => p.meu);
+  if (rotulo) {
+    const r = ativos.find((p) => p.rotulo && normRotulo(p.rotulo) === normRotulo(rotulo));
+    if (r) return r;
+  }
+  const porValor = ativos.filter((p) => p.parcelas === n && (!p.valorParcela || Math.abs(p.valorParcela - valor) <= Math.max(1, valor * 0.05)));
+  return porValor.length === 1 ? porValor[0] : porValor.find((p) => !p.quitado) || null;
+}
+
+// Fatura: identifica as parcelas do parcelamento e calcula a divisão amortização × juros
+function tratarParcelasDeFatura(itens) {
+  const lista = state.parcelamentos || [];
+  for (const t of itens) {
+    if (t.natureza !== 'saida' || !RE_PARC_FATURA.test(t.descricao)) continue;
+    const kn = [...t.descricao.matchAll(/(\d{1,2})\s*\/\s*(\d{1,2})(?!\d)/g)].map((m) => [Number(m[1]), Number(m[2])]).filter(([k, n]) => k >= 1 && k <= n && n <= 48).pop();
+    const rotulo = (t.descricao.match(/\(([^)]{3,30})\)/) || [])[1] || '';
+    t.tipo = PARC_FATURA;
+    t.parc = { k: kn?.[0] || 0, n: kn?.[1] || 0, rotulo, valor: t.valor };
+    const p = kn ? acharParcelamento(lista, { rotulo, n: kn[1], valor: t.valor }) : null;
+    t.parcRef = p?.id || null;
+    t.acaoParc = null;
+    if (p && p.valorParcela) {
+      const amort = Math.min(t.valor, Math.round((p.financiado / p.parcelas) * 100) / 100);
+      const juros = Math.max(0, Math.round((t.valor - amort) * 100) / 100);
+      t.divisao = { amort, juros, cartao: p.cartao };
+      t.nota = `Parcela ${t.parc.k}/${t.parc.n} do parcelamento da fatura ${p.cartao} (${dataBR(p.vencimento)}): ${fmt(amort)} de amortização (fora dos gastos — as compras já foram contadas) + ${fmt(juros)} de juros (entra como gasto).`;
+    } else {
+      t.divisao = null;
+      t.nota = 'Parcelamento de fatura sem cadastro: por enquanto a parcela inteira fica fora dos gastos. Cadastre quanto foi parcelado para separar os juros.';
+      t.acaoParc = { cartao: state.importInfo?.banco || '', parcelas: t.parc.n || '', valorParcela: t.valor, rotulo, parcelasPagas: t.parc.k || 0 };
+    }
+  }
+}
+
+// Extrato: pagamento de fatura menor que o total da fatura importada = pagamento parcial
+function verificarPagamentosParciais(itens) {
+  const faturas = (state.historico || []).filter((h) => h.meu && h.tipoDocumento === 'fatura_cartao' && h.vencimento && h.gastos);
+  const pagamentos = itens.filter((t) => t.tipo === INTERNA && t.natureza === 'saida' && RE_PAG_FATURA.test(t.descricao));
+  const porFatura = new Map();
+  for (const t of pagamentos) {
+    const dias = (h) => Math.abs((new Date(t.data) - new Date(h.vencimento)) / 864e5);
+    const f = faturas.filter((h) => dias(h) <= 10).sort((a, b) => dias(a) - dias(b))[0];
+    if (!f) continue;
+    if (!porFatura.has(f.id)) porFatura.set(f.id, { f, itens: [] });
+    porFatura.get(f.id).itens.push(t);
+  }
+  for (const { f, itens: pags } of porFatura.values()) {
+    const total = Math.round((f.gastos.total - (f.entradas?.total || 0)) * 100) / 100;
+    const pago = Math.round(pags.reduce((s, t) => s + t.valor, 0) * 100) / 100;
+    const cadastro = (state.parcelamentos || []).find((p) => p.meu && p.vencimento === f.vencimento);
+    const ultimo = pags[pags.length - 1];
+    if (pago >= total - 1) continue;
+    if (cadastro) {
+      ultimo.nota = `Pagamento parcial da fatura ${cadastro.cartao} (${dataBR(f.vencimento)}): ${fmt(cadastro.financiado)} parcelados em ${cadastro.parcelas}× — cadastrado ✔`;
+      ultimo.acaoParc = null;
+      continue;
+    }
+    ultimo.nota = `⚠️ Pagamento parcial: a fatura ${f.banco || ''} com vencimento ${dataBR(f.vencimento)} somava ${fmt(total)} e foram pagos ${fmt(pago)} — faltam ${fmt(total - pago)}. Se você parcelou o restante, cadastre o parcelamento.`;
+    ultimo.acaoParc = { cartao: f.banco || '', vencimento: f.vencimento, totalFatura: total, valorPago: pago };
+  }
+}
+
+async function renderCardParcelamentos() {
+  const card = $('#card-parcelamentos');
+  let lista;
+  try { lista = await carregarParcelamentos(); } catch { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  const ativos = lista.filter((p) => !p.quitado);
+  const devido = ativos.reduce((s, p) => s + p.saldoDevedor, 0);
+  card.innerHTML = `<div class="linha-entre"><h3>💳 Parcelamentos de fatura</h3>
+      <button type="button" class="btn-chip" id="btn-novo-parc">＋ Pagamento parcial</button></div>
+    ${lista.length ? `${ativos.length ? `<p class="sub" style="margin:0 0 8px">Saldo devedor: <b>${fmt(devido)}</b> (já com juros)</p>` : ''}
+      ${lista.map((p) => `<button type="button" class="parc-item ${p.quitado ? 'quitado' : ''}" data-parc="${esc(p.id)}">
+        <span><b>${esc(p.cartao)} · fatura ${dataBR(p.vencimento)}</b>${p.meu ? '' : ` <span class="badge">${esc(p.nomeUsuario)}</span>`}
+          <small>${p.quitado ? '✅ Quitado' : `${p.pagas}/${p.parcelas} parcelas pagas · faltam ${fmt(p.saldoDevedor)}`}</small>
+          <small>Fatura ${fmt(p.totalFatura)} · pago ${fmt(p.valorPago)} · parcelado ${fmt(p.financiado)}${p.valorParcela ? ` em ${p.parcelas}× ${fmt(p.valorParcela)} · juros ${fmt(p.juros)}` : ''}</small></span>
+        ${p.valorParcela ? `<span class="progresso"><span style="width:${(p.pagas / p.parcelas) * 100}%"></span></span>` : ''}
+      </button>`).join('')}`
+    : '<p class="sub" style="margin:0">Pagou só parte de uma fatura e parcelou o resto? Cadastre aqui: o app separa os juros das parcelas e mostra o saldo devedor.</p>'}`;
+  $('#btn-novo-parc').addEventListener('click', (e) => { e.stopPropagation(); abrirParcelamento(); });
+  $$('[data-parc]', card).forEach((b) => b.addEventListener('click', () => abrirParcelamento(lista.find((p) => p.id === b.dataset.parc))));
+}
+
+function abrirParcelamento(p = null, pre = {}) {
+  const f = $('#form-parc');
+  f.reset();
+  $('#parc-erro').textContent = '';
+  f.id.value = p?.id || '';
+  const v = (x) => (x || x === 0 ? String(Number(x).toFixed(2)).replace('.', ',') : '');
+  f.cartao.value = p?.cartao ?? pre.cartao ?? '';
+  f.vencimento.value = p?.vencimento ?? pre.vencimento ?? '';
+  f.totalFatura.value = v(p?.totalFatura ?? pre.totalFatura);
+  f.valorPago.value = v(p?.valorPago ?? pre.valorPago);
+  f.parcelas.value = p?.parcelas ?? pre.parcelas ?? '';
+  f.valorParcela.value = v(p?.valorParcela || pre.valorParcela);
+  f.parcelasPagas.value = p?.pagas ?? pre.parcelasPagas ?? 0;
+  f.rotulo.value = p?.rotulo ?? pre.rotulo ?? '';
+  $$('input[name=compartilhado]', f).forEach((r) => { r.checked = r.value === ((p ? p.compartilhado : true) ? 'SIM' : 'NAO'); });
+  const somenteLeitura = p && !p.meu;
+  $$('input', f).forEach((i) => { i.disabled = somenteLeitura; });
+  $('#btn-salvar-parc').classList.toggle('hidden', somenteLeitura);
+  $('#btn-excluir-parc').classList.toggle('hidden', !p || !p.meu);
+  $('#parc-titulo').textContent = p ? 'Parcelamento de fatura' : 'Pagamento parcial de fatura';
+  previaParcelamento();
+  $('#dlg-parc').showModal();
+}
+
+function previaParcelamento() {
+  const f = $('#form-parc');
+  const total = parseValor(f.totalFatura.value) || 0;
+  const pago = parseValor(f.valorPago.value) || 0;
+  const n = Number(f.parcelas.value) || 0;
+  const vp = parseValor(f.valorParcela.value) || 0;
+  const fin = Math.max(0, total - pago);
+  let t = total ? `Parcelado (financiado): <b>${fmt(fin)}</b>` : 'Informe o total da fatura e quanto foi pago.';
+  if (fin && n && vp) {
+    const juros = Math.max(0, n * vp - fin);
+    t += ` · ${n}× ${fmt(vp)} = ${fmt(n * vp)} · <b>juros ${fmt(juros)}</b> (${((juros / fin) * 100).toFixed(1)}% sobre o parcelado).<br>
+      Em cada parcela: ${fmt(fin / n)} de amortização (fora dos gastos) + ${fmt(vp - fin / n)} de juros (gasto).`;
+  } else if (fin && n) t += ' · informe o valor da parcela para separar os juros.';
+  $('#parc-previa').innerHTML = t;
+}
+
+async function salvarParcelamento(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  const body = {
+    acao: f.id.value ? 'editar' : 'criar', id: f.id.value || undefined,
+    cartao: f.cartao.value.trim(), vencimento: f.vencimento.value, rotulo: f.rotulo.value.trim(),
+    totalFatura: parseValor(f.totalFatura.value), valorPago: f.valorPago.value.trim() ? parseValor(f.valorPago.value) : 0,
+    parcelas: Number(f.parcelas.value), valorParcela: f.valorParcela.value.trim() ? parseValor(f.valorParcela.value) : 0,
+    parcelasPagas: Number(f.parcelasPagas.value) || 0,
+    compartilhado: $('input[name=compartilhado]:checked', f).value === 'SIM',
+  };
+  try {
+    await api('/api/parcelamentos', { method: 'POST', body });
+    $('#dlg-parc').close();
+    toast('Parcelamento salvo 💳');
+    await carregarParcelamentos(true);
+    if (state.importados.length) { // revisão aberta: recalcula as linhas
+      tratarParcelasDeFatura(state.importados);
+      verificarPagamentosParciais(state.importados);
+      renderImportados();
+    }
+    if (state.view === 'inicio') renderCardParcelamentos();
+  } catch (e) { $('#parc-erro').textContent = e.message; }
+}
+
+async function excluirParcelamento() {
+  const id = $('#form-parc').id.value;
+  if (!id || !confirm('Excluir este parcelamento? Os lançamentos já importados não mudam.')) return;
+  try {
+    await api(`/api/parcelamentos?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    $('#dlg-parc').close();
+    toast('Parcelamento excluído');
+    await carregarParcelamentos(true);
+    renderCardParcelamentos();
+  } catch (e) { $('#parc-erro').textContent = e.message; }
 }
 
 // ---------- Apagar meus lançamentos ----------
@@ -948,6 +1124,10 @@ async function importarPdf(file) {
     return;
   }
 
+  if (!resultado.banco) {
+    const m = file.name.match(/nubank|santander|ita[uú]|bradesco|c6|inter|caixa|sicredi|sicoob|btg|xp|banco do brasil|bb|picpay|mercado ?pago|neon|original/i);
+    if (m) resultado.banco = m[0].length <= 3 ? m[0].toUpperCase() : m[0].charAt(0).toUpperCase() + m[0].slice(1).toLowerCase();
+  }
   state.importInfo = { tipoDocumento: resultado.tipoDocumento, vencimento: resultado.vencimento, banco: resultado.banco, nomeArquivo: file.name };
   $('#import-analise').innerHTML = '';
   $('#btn-analise-import').classList.remove('hidden');
@@ -958,6 +1138,9 @@ async function importarPdf(file) {
     compartilhado: visPadrao, compManual: false,
   }));
   marcarTransferenciasInternas(state.importados, resultado.tipoDocumento);
+  await carregarParcelamentos(true).catch(() => []);
+  if (resultado.tipoDocumento === 'fatura_cartao') tratarParcelasDeFatura(state.importados);
+  else verificarPagamentosParciais(state.importados);
   $('#import-holerite').classList.toggle('hidden', resultado.tipoDocumento !== 'holerite');
   $('#import-compensar').checked = false;
 
@@ -1007,6 +1190,7 @@ function renderImportados() {
       <select data-k="tipo" class="desc" aria-label="Tipo">${opcoes(catsDe(t.natureza), t.tipo)}</select>
       ${t.dup ? '<small class="erro desc" style="margin:0">⚠️ Possível duplicado (já existe lançamento com mesmo valor)</small>' : ''}
       ${t.nota ? `<small class="sub desc" style="margin:0">📄 ${esc(t.nota)}</small>` : ''}
+      ${t.acaoParc ? `<button type="button" class="btn-chip desc" data-acao-parc="${i}">💳 ${t.acaoParc.totalFatura ? 'Registrar parcelamento' : 'Cadastrar parcelamento'}</button>` : ''}
       ${ajusteSalario(t) ? `<small class="sub desc" style="margin:0">📅 Salário do último dia útil: será considerado em ${dataBR(ajusteSalario(t).data)}</small>` : ''}
       ${t.mover ? `<small class="sub desc" style="margin:0">↪️ Já importado em ${t.mover.data.split('-').reverse().join('/')} — será movido para o vencimento</small>` : ''}
     </div></li>`).join('');
@@ -1062,7 +1246,7 @@ function atualizarResumoImport() {
   const privados = sel.filter((t) => !t.compartilhado).length;
   const internas = sel.filter((t) => !conta(t));
   $('#import-resumo').textContent = `Selecionados: ${sel.length} · gastos ${fmt(soma('saida'))} · entradas ${fmt(soma('entrada'))}`
-    + (internas.length ? ` · 🔁 ${internas.length} transferências internas (${fmt(internas.reduce((s, t) => s + t.valor, 0))}, fora do saldo)` : '')
+    + (internas.length ? ` · ↔ ${internas.length} fora do saldo (${fmt(internas.reduce((s, t) => s + t.valor, 0))} em transferências internas/amortizações)` : '')
     + ` · 👫 ${sel.length - privados} casal · 🔒 ${privados} só eu`;
 }
 
@@ -1094,8 +1278,13 @@ async function salvarImportados() {
   try {
     let movidos = 0;
     importacaoId = await registrarNoHistorico(sel);
+    // Parcelas de parcelamento de fatura: amortização (fora dos gastos) + juros (gasto "Tarifas e juros")
+    const dividir = (lista) => lista.flatMap((t) => (t.divisao && t.divisao.juros > 0.004
+      ? [{ ...t, valor: t.divisao.amort },
+        { ...t, valor: t.divisao.juros, tipo: 'Tarifas e juros', descricao: `Juros do parcelamento de fatura ${t.parc.k}/${t.parc.n} - ${t.divisao.cartao}`, divisao: null }]
+      : [t]));
     for (const natureza of ['saida', 'entrada']) {
-      const daNatureza = sel.filter((t) => t.natureza === natureza).map(final);
+      const daNatureza = dividir(sel.filter((t) => t.natureza === natureza)).map(final);
       const novos = daNatureza.filter((t) => !t.mover)
         .map(({ data, valor, tipo, descricao, origem, compartilhado }) => ({ data, valor, tipo, descricao, origem, compartilhado, importacao: importacaoId || '' }));
       const mover = daNatureza.filter((t) => t.mover)
@@ -1107,6 +1296,11 @@ async function salvarImportados() {
     const mesesImp = [...new Set(sel.map((t) => (ajusteSalario(final(t))?.data || final(t).data).slice(0, 7)))].sort();
     toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')}${movidos ? ` (${movidos} movidos para o vencimento)` : ''} ✔`);
     state.importArquivo = null;
+    // Atualiza quantas parcelas de cada parcelamento já apareceram nas faturas
+    for (const t of sel.filter((x) => x.parcRef && x.parc?.k)) {
+      await api('/api/parcelamentos', { method: 'POST', body: { acao: 'parcela', id: t.parcRef, parcela: t.parc.k, valorParcela: t.parc.valor } }).catch(() => {});
+    }
+    state.parcelamentos = null;
     avisoArquivoRepetido([]);
     state.importados = [];
     state.cache = {};
@@ -1205,6 +1399,7 @@ async function registrarNoHistorico(sel) {
       body: {
         nomeArquivo: state.importArquivo.nome, hash: state.importArquivo.hash,
         tipoDocumento: state.importInfo?.tipoDocumento, banco: state.importInfo?.banco,
+        vencimento: state.importInfo?.tipoDocumento === 'fatura_cartao' ? ($('#import-venc').value || state.importInfo?.vencimento || '') : '',
         periodoInicio: datas[0], periodoFim: datas[datas.length - 1],
         gastos: resumo(sel.filter((t) => t.natureza === 'saida' && conta(t))),
         entradas: resumo(sel.filter((t) => t.natureza === 'entrada' && conta(t))),
@@ -1911,6 +2106,13 @@ function ligarEventos() {
   $$('[data-fechar]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
   $$('dialog').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
   $('#input-pdf').addEventListener('change', (e) => importarPdf(e.target.files[0]));
+  $('#import-lista').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-acao-parc]');
+    if (b) abrirParcelamento(null, state.importados[Number(b.dataset.acaoParc)].acaoParc);
+  });
+  $('#form-parc').addEventListener('submit', salvarParcelamento);
+  $('#form-parc').addEventListener('input', previaParcelamento);
+  $('#btn-excluir-parc').addEventListener('click', excluirParcelamento);
   $('#import-lista').addEventListener('input', (e) => {
     const li = e.target.closest('li[data-i]');
     if (!li) return;

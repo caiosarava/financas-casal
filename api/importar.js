@@ -56,6 +56,8 @@ Layouts comuns (ex.: Santander, Itaú, Bradesco, Banco do Brasil):
   só entram as parcelas cobradas nesta fatura. Ignore também resumo da fatura, pagamento mínimo, limites, tabelas de juros/CET,
   opções de parcelamento da fatura e cotação do dólar.
 - Em faturas, valores negativos ou com "-" são créditos (estornos → entrada; pagamento da fatura → ignorar).
+- Parcelas de "Parcelamento de fatura" (ex.: "Parcelamento de Fatura (10/Agosto) - 3/6") são a devolução de uma fatura antiga
+  parcelada: use o tipo "Parcelamento de fatura" e mantenha "k/n" na descrição. Juros/IOF/encargos em linhas próprias → "Tarifas e juros".
 - Em extratos, débitos podem aparecer com "-" no fim (ex.: 189,90-) e a data pode aparecer só na primeira movimentação do dia:
   as linhas seguintes sem data pertencem ao mesmo dia. Ignore "Saldo anterior", "Saldo do dia" e a coluna de saldo.
 - Em compras internacionais, use o valor em R$ (não o valor em US$).
