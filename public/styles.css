@@ -259,4 +259,7 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .parc-item .progresso { display: block; height: 8px; margin: 0; }
 .parc-item .progresso > span { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-2)); border-radius: 999px; }
 .campos-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.detalhes-ia { margin: 4px 0 10px; font-size: .78rem; color: var(--muted); }
+.detalhes-ia summary { cursor: pointer; padding: 4px 0; }
+.detalhes-ia ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

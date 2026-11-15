@@ -82,7 +82,7 @@ async function api(path, { method = 'GET', body } = {}) {
   let data = {};
   try { data = await res.json(); } catch { /* sem corpo */ }
   if (res.status === 401 && path !== '/api/auth') { sair(); throw new Error(data.error || 'Sessão expirada.'); }
-  if (!res.ok) { const e = new Error(data.error || `Erro ${res.status}`); e.status = res.status; throw e; }
+  if (!res.ok) { const e = new Error(data.error || `Erro ${res.status}`); e.status = res.status; e.detalhes = data.detalhes; throw e; }
   return data;
 }
 
@@ -799,6 +799,11 @@ async function confirmarApagar(ev) {
 }
 
 // ---------- Análise com IA (NVIDIA) ----------
+// Erro com o diagnóstico de cada tentativa (modelo, código, mensagem) para descobrir a causa
+function erroAnaliseHtml(e) {
+  const t = e.detalhes?.tentativas || [];
+  return `<p class="erro">${esc(e.message)}</p>${t.length ? `<details class="detalhes-ia"><summary>Detalhes técnicos</summary><ul>${t.map((x) => `<li><b>${esc(x.modelo)}</b> → ${esc(String(x.status))}: ${esc(x.msg)}</li>`).join('')}</ul></details>` : ''}`;
+}
 const chaveAnalise = () => `${state.mes}|${state.visao}`;
 
 function renderCardAnalise() {
@@ -824,7 +829,7 @@ async function analisarMes(forcar = false) {
     state.analises[chave] = await api('/api/analise', { method: 'POST', body: { modo: 'mes', mes: state.mes, visao: state.visao } });
     if (chave === chaveAnalise()) renderCardAnalise();
   } catch (e) {
-    box.innerHTML = `<p class="erro">${esc(e.message)}</p><button class="btn largo" id="btn-analise-mes">Tentar novamente</button>`;
+    box.innerHTML = `${erroAnaliseHtml(e)}<button class="btn largo" id="btn-analise-mes">Tentar novamente</button>`;
     $('#btn-analise-mes').addEventListener('click', () => analisarMes(true));
   }
 }
@@ -848,7 +853,7 @@ async function analisarImportacao() {
     renderAnalise(box, dados);
     btn.classList.add('hidden');
   } catch (e) {
-    box.innerHTML = `<p class="erro">${esc(e.message)}</p>`;
+    box.innerHTML = erroAnaliseHtml(e);
     btn.textContent = '↻ Tentar novamente';
   } finally { btn.disabled = false; }
 }
