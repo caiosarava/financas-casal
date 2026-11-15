@@ -95,9 +95,11 @@ Para a leitura inteligente de PDFs, crie uma chave em <https://console.anthropic
 ### 5b. (Opcional) Chave da API da NVIDIA (análise com IA)
 Para a análise financeira com IA, crie uma chave em <https://build.nvidia.com/> → faça login → **Get API Key** (começa com `nvapi-`).
 Cadastre-a **somente** na Vercel, na variável `NVIDIA_API_KEY` — nunca no código ou no repositório.
-O modelo padrão é `meta/llama-3.3-70b-instruct`, com reservas `openai/gpt-oss-120b` e `meta/llama-3.1-70b-instruct`
-(usadas se o principal não existir, estiver sobrecarregado ou sem cota). Para trocar, use `NVIDIA_MODEL` e `NVIDIA_MODELOS_RESERVA`
-com IDs listados no catálogo do build.nvidia.com.
+**Modelo escolhido automaticamente:** a NVIDIA aposenta modelos com frequência (erro 410 "end of life"), então o app consulta
+a lista de modelos liberados para a chave (`/v1/models`), descarta os que não são de conversa (embeddings, imagem, áudio, moderação,
+código…), prefere as famílias mais capazes e passa para o próximo se algum falhar; o que funcionou é reaproveitado nas análises seguintes.
+Para fixar um modelo, use `NVIDIA_MODEL` (e opcionalmente `NVIDIA_MODELOS_RESERVA`) com IDs do catálogo do build.nvidia.com —
+se eles forem aposentados, o app volta a escolher pelo catálogo.
 
 ### 6. Deploy na Vercel
 1. Em <https://vercel.com/new>, importe o repositório `caiosarava/financas-casal` (Framework: **Other**; não há build).
@@ -115,8 +117,8 @@ com IDs listados no catálogo do build.nvidia.com.
 | `ANTHROPIC_API_KEY` | (opcional) chave da API do Claude — leitura dos extratos |
 | `REGRA_SALARIO_MES_SEGUINTE` | (opcional) e-mails da regra do salário no mês seguinte; padrão `thianedepra@gmail.com` |
 | `NVIDIA_API_KEY` | (opcional) chave da API da NVIDIA (`nvapi-…`) — análise financeira com IA |
-| `NVIDIA_MODEL` | (opcional) modelo; padrão `meta/llama-3.3-70b-instruct` |
-| `NVIDIA_MODELOS_RESERVA` | (opcional) modelos de reserva, separados por vírgula; padrão `openai/gpt-oss-120b,meta/llama-3.1-70b-instruct` |
+| `NVIDIA_MODEL` | (opcional) fixa o modelo; sem ele, o app escolhe pelo catálogo da NVIDIA |
+| `NVIDIA_MODELOS_RESERVA` | (opcional) modelos de reserva, separados por vírgula, tentados antes do catálogo |
 
 3. Faça o deploy (ou **Redeploy** após cadastrar as variáveis).
 4. Volte ao passo 4 e confira se a URL final da Vercel está nas origens autorizadas.
