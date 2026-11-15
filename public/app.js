@@ -1067,6 +1067,7 @@ function atualizarResumoImport() {
 }
 
 async function salvarImportados() {
+  let importacaoId = null;
   const sel = state.importados.filter((t) => t.sel);
   if (!sel.length) { toast('Selecione ao menos um lançamento.'); return; }
   if (sel.some((t) => !(t.valor > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(t.data))) { toast('Há lançamentos com valor ou data inválidos.'); return; }
@@ -1092,10 +1093,11 @@ async function salvarImportados() {
   carregando(true);
   try {
     let movidos = 0;
+    importacaoId = await registrarNoHistorico(sel);
     for (const natureza of ['saida', 'entrada']) {
       const daNatureza = sel.filter((t) => t.natureza === natureza).map(final);
       const novos = daNatureza.filter((t) => !t.mover)
-        .map(({ data, valor, tipo, descricao, origem, compartilhado }) => ({ data, valor, tipo, descricao, origem, compartilhado }));
+        .map(({ data, valor, tipo, descricao, origem, compartilhado }) => ({ data, valor, tipo, descricao, origem, compartilhado, importacao: importacaoId || '' }));
       const mover = daNatureza.filter((t) => t.mover)
         .map(({ data, valor, tipo, descricao, compartilhado, mover: g }) => ({ id: g.id, data, valor, tipo, descricao, compartilhado }));
       if (novos.length) await api(ENDPOINT[natureza], { method: 'POST', body: { itens: novos } });
@@ -1104,7 +1106,7 @@ async function salvarImportados() {
     }
     const mesesImp = [...new Set(sel.map((t) => (ajusteSalario(final(t))?.data || final(t).data).slice(0, 7)))].sort();
     toast(`${sel.length} lançamentos salvos em ${mesesImp.map((m) => mesLabel(m).toLowerCase()).join(', ')}${movidos ? ` (${movidos} movidos para o vencimento)` : ''} ✔`);
-    await registrarNoHistorico(sel);
+    state.importArquivo = null;
     avisoArquivoRepetido([]);
     state.importados = [];
     state.cache = {};
@@ -1114,7 +1116,12 @@ async function salvarImportados() {
     $('#input-pdf').value = '';
     mudarMes(mesesImp[mesesImp.length - 1]);
     irPara('inicio');
-  } catch (e) { toast(e.message); } finally { btn.disabled = false; carregando(false); }
+  } catch (e) {
+    // Falhou no meio: desfaz o que já foi gravado desta importação para não ficar pela metade
+    if (importacaoId) await api(`/api/importacoes?id=${encodeURIComponent(importacaoId)}&desfazer=1&forcar=1`, { method: 'DELETE' }).catch(() => {});
+    state.historico = null;
+    toast(`Não foi possível salvar: ${e.message}${importacaoId ? ' (nada foi gravado)' : ''}`);
+  } finally { btn.disabled = false; carregando(false); }
 }
 
 // ----- Histórico de importações -----
@@ -1169,11 +1176,13 @@ async function renderHistorico() {
         <small>${rotulo}${h.banco ? ` · ${esc(h.banco)}` : ''}${periodo ? ` · ${periodo}` : ''}</small>
         <small>${h.meu ? 'Você' : esc(h.nomeUsuario)} · ${dataHora(h.criadoEm)}</small>
         ${resumo ? `<small>${resumo}</small>` : ''}
+        ${h.meu ? `<button type="button" class="btn-desfazer" data-desfazer="${esc(h.id)}">↩ Desfazer importação</button>` : ''}
       </div>
-      ${h.meu ? `<button type="button" data-del-hist="${esc(h.id)}" title="Remover do histórico" aria-label="Remover do histórico">✕</button>` : ''}
+      ${h.meu ? `<button type="button" data-del-hist="${esc(h.id)}" title="Remover só do histórico" aria-label="Remover só do histórico">✕</button>` : ''}
     </li>`;
   }).join('');
   $('#btn-hist-mais').classList.toggle('hidden', historicoCompleto || itens.length <= 15);
+  $$('[data-desfazer]', ul).forEach((b) => b.addEventListener('click', () => desfazerImportacao(itens.find((h) => h.id === b.dataset.desfazer))));
   $$('[data-del-hist]', ul).forEach((b) => b.addEventListener('click', async () => {
     if (!confirm('Remover este arquivo do histórico?\nOs lançamentos que foram importados NÃO são apagados.')) return;
     try {
@@ -1184,12 +1193,14 @@ async function renderHistorico() {
   }));
 }
 
+// Registra a importação ANTES de gravar os lançamentos e devolve o id (gravado em cada lançamento)
 async function registrarNoHistorico(sel) {
-  if (!state.importArquivo) return;
+  if (!state.importArquivo) return null;
   const resumo = (lista) => ({ qtd: lista.length, total: Math.round(lista.reduce((s, t) => s + t.valor, 0) * 100) / 100 });
   const datas = sel.map((t) => t.data).filter(Boolean).sort();
+  let id = null;
   try {
-    await api('/api/importacoes', {
+    ({ id } = await api('/api/importacoes', {
       method: 'POST',
       body: {
         nomeArquivo: state.importArquivo.nome, hash: state.importArquivo.hash,
@@ -1199,10 +1210,30 @@ async function registrarNoHistorico(sel) {
         entradas: resumo(sel.filter((t) => t.natureza === 'entrada' && conta(t))),
         internas: resumo(sel.filter((t) => !conta(t))),
       },
-    });
+    }));
   } catch (e) { console.warn('Não foi possível registrar no histórico:', e.message); }
   state.historico = null;
-  state.importArquivo = null;
+  return id;
+}
+
+async function desfazerImportacao(h) {
+  const partes = [h.gastos?.qtd ? `${h.gastos.qtd} gasto${h.gastos.qtd === 1 ? '' : 's'}` : '', h.entradas?.qtd ? `${h.entradas.qtd} entrada${h.entradas.qtd === 1 ? '' : 's'}` : '',
+    h.internas?.qtd ? `${h.internas.qtd} transferência${h.internas.qtd === 1 ? '' : 's'} interna${h.internas.qtd === 1 ? '' : 's'}` : ''].filter(Boolean);
+  if (!confirm(`Desfazer a importação de "${h.nomeArquivo}"?\n\nIsso APAGA os lançamentos que vieram deste arquivo${partes.length ? ` (${partes.join(', ')})` : ''}, `
+    + 'inclusive os que você editou depois, e tira o arquivo do histórico. Não dá para desfazer pelo app.')) return;
+  carregando(true);
+  try {
+    const r = await api(`/api/importacoes?id=${encodeURIComponent(h.id)}&desfazer=1`, { method: 'DELETE' });
+    if (!r.removido) {
+      toast('Nenhum lançamento ligado a este arquivo (importado antes desta função). Use "Apagar meus lançamentos" ou remova só do histórico.');
+    } else {
+      toast(`Importação desfeita: ${r.apagados} lançamento${r.apagados === 1 ? '' : 's'} apagado${r.apagados === 1 ? '' : 's'} ↩`);
+      state.cache = {};
+      state.analises = {};
+    }
+    state.historico = null;
+    renderHistorico();
+  } catch (e) { toast(e.message); } finally { carregando(false); }
 }
 
 // ----- Leitura local (sem IA) -----

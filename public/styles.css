@@ -250,4 +250,5 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .hist-info small { color: var(--muted); font-size: .78rem; }
 .hist-item > button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 6px 8px; font-size: 1rem; }
 .aviso-repetido { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #d97706 15%, transparent); font-size: .85rem; color: var(--text); }
+.btn-desfazer { justify-self: start; margin-top: 4px; border: 1px solid var(--border); background: var(--card); color: var(--danger); border-radius: 999px; padding: 6px 12px; font-size: .8rem; cursor: pointer; }
 .inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

@@ -1,9 +1,10 @@
 // Histórico de importações (arquivos de extrato/fatura/holerite já importados).
 // GET → { itens: [...] }  ·  POST → registra uma importação  ·  DELETE ?id= → remove do histórico (só as próprias)
+// DELETE ?id=&desfazer=1 → apaga os lançamentos (do próprio usuário) vindos desta importação e o registro do histórico
 // Os dois usuários veem o histórico; quantidades e valores só aparecem nas importações da própria pessoa
 // (podem incluir lançamentos privados).
 import { handler, HttpError, requireUser, userNames } from '../lib/auth.js';
-import { readAll, appendRows, deleteRow, newId } from '../lib/sheets.js';
+import { readAll, appendRows, deleteRow, deleteRows, newId } from '../lib/sheets.js';
 
 const TIPOS = ['extrato_bancario', 'fatura_cartao', 'holerite', 'outro'];
 const DATA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -57,6 +58,18 @@ export default handler(async (req) => {
     const atual = (await readAll('Importacoes')).find((i) => String(i.id) === String(id));
     if (!atual) throw new HttpError(404, 'Importação não encontrada.');
     if (atual.usuario !== email) throw new HttpError(403, 'Só quem importou pode remover do histórico.');
+    if ((req.query || {}).desfazer) {
+      const [gastos, entradas] = await Promise.all([readAll('Gastos'), readAll('Entradas')]);
+      const daImportacao = (rows) => rows.filter((g) => String(g.importacao) === String(atual.id) && g.usuario === email);
+      const g = daImportacao(gastos);
+      const e = daImportacao(entradas);
+      // Sem lançamentos vinculados (ex.: importado antes desta função): não apaga nada, nem o registro
+      if (!g.length && !e.length && !(req.query || {}).forcar) return { apagados: 0, gastos: 0, entradas: 0, removido: false };
+      await deleteRows('Gastos', g.map((x) => x.__row));
+      await deleteRows('Entradas', e.map((x) => x.__row));
+      await deleteRow('Importacoes', atual.__row);
+      return { apagados: g.length + e.length, gastos: g.length, entradas: e.length, removido: true };
+    }
     await deleteRow('Importacoes', atual.__row);
     return { ok: true };
   }
