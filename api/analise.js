@@ -1,11 +1,11 @@
-// Análise financeira com IA (API da NVIDIA): complementa a leitura dos lançamentos com
+// Análise financeira com IA (OpenAI, com a NVIDIA como reserva): complementa a leitura dos lançamentos com
 // insights sobre gastos — recorrências, parcelamentos, tarifas, alertas e dicas de economia.
 //
 // POST { modo: 'mes', mes: 'AAAA-MM', visao: 'todos'|'casal'|'meus' }
 //   → analisa os lançamentos do mês que o usuário pode ver (lidos da planilha), comparando com o mês anterior.
 // POST { modo: 'importacao', transacoes: [...], tipoDocumento, vencimento, banco, nomeArquivo }
 //   → analisa o extrato/fatura recém-enviado, antes ou depois de salvar.
-import { gerarJson } from '../lib/nvidia.js';
+import { gerarJson, provedoresAtivos } from '../lib/ia.js';
 import { handler, HttpError, requireUser, userNames } from '../lib/auth.js';
 import { readAll } from '../lib/sheets.js';
 import { TIPOS_FORA_DO_SALDO } from '../lib/categorias.js';
@@ -129,7 +129,7 @@ ${linhas(lista.sort((a, b) => a.data.localeCompare(b.data)))}`,
 export default handler(async (req) => {
   const email = requireUser(req);
   if (req.method !== 'POST') throw new HttpError(405, 'Método não permitido.');
-  if (!process.env.NVIDIA_API_KEY) throw new HttpError(501, 'Análise com IA não configurada (NVIDIA_API_KEY ausente).');
+  if (!provedoresAtivos().length) throw new HttpError(501, 'Análise com IA não configurada (cadastre OPENAI_API_KEY ou NVIDIA_API_KEY).');
 
   const body = req.body || {};
   let ctx;
