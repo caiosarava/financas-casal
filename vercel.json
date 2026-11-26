@@ -7,6 +7,9 @@
     },
     "api/analise.js": {
       "maxDuration": 120
+    },
+    "api/openfinance.js": {
+      "maxDuration": 120
     }
   },
   "headers": [

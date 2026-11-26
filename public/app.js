@@ -179,7 +179,7 @@ function atualizarView() {
   if (state.view === 'inicio') return renderInicio();
   if (state.view === 'gastos') return renderLista();
   if (state.view === 'metas') return renderMetas();
-  if (state.view === 'importar') return renderHistorico();
+  if (state.view === 'importar') { renderOpenFinance(); return renderHistorico(); }
 }
 
 function mesLabel(mes) {
@@ -412,7 +412,7 @@ async function renderLista() {
     html += `<li class="item" data-id="${esc(g.id)}" data-n="${g.natureza}">
       <span class="emoji" style="background:${corPessoa(g.usuario)}22">${emojiDe(g.tipo)}</span>
       <span class="info"><b>${esc(g.descricao || g.tipo)}</b>
-        <small>${esc(g.tipo)} · ${esc(nomeDe(g.usuario))}${g.compartilhado ? '' : '<span class="badge">🔒 só eu</span>'}${g.origem === 'folha' ? '<span class="badge">folha</span>' : g.origem === 'pdf' || g.origem === 'planilha' ? '<span class="badge">importado</span>' : ''}</small></span>
+        <small>${esc(g.tipo)} · ${esc(nomeDe(g.usuario))}${g.compartilhado ? '' : '<span class="badge">🔒 só eu</span>'}${g.origem === 'folha' ? '<span class="badge">folha</span>' : g.origem === 'openfinance' ? '<span class="badge">open finance</span>' : g.origem === 'pdf' || g.origem === 'planilha' ? '<span class="badge">importado</span>' : ''}</small></span>
       <span class="valor ${!conta(g) ? 'interna' : entrada ? 'pos' : ''}">${!conta(g) ? '↔ ' : entrada ? '+' : '−'}${fmt(g.valor)}</span></li>`;
   }
   ul.innerHTML = html;
@@ -1129,17 +1129,23 @@ async function importarPdf(file) {
     return;
   }
 
+  await prepararRevisao(resultado, { nome: file.name, origemPadrao: pdf ? 'pdf' : 'planilha' });
+}
+
+// Monta a tela de revisão a partir de um resultado de leitura (arquivo ou Open Finance)
+async function prepararRevisao(resultado, { nome, origemPadrao }) {
+  const status = $('#import-status');
   if (!resultado.banco) {
-    const m = file.name.match(/nubank|santander|ita[uú]|bradesco|c6|inter|caixa|sicredi|sicoob|btg|xp|banco do brasil|bb|picpay|mercado ?pago|neon|original/i);
+    const m = nome.match(/nubank|santander|ita[uú]|bradesco|c6|inter|caixa|sicredi|sicoob|btg|xp|banco do brasil|bb|picpay|mercado ?pago|neon|original/i);
     if (m) resultado.banco = m[0].length <= 3 ? m[0].toUpperCase() : m[0].charAt(0).toUpperCase() + m[0].slice(1).toLowerCase();
   }
-  state.importInfo = { tipoDocumento: resultado.tipoDocumento, vencimento: resultado.vencimento, banco: resultado.banco, nomeArquivo: file.name };
+  state.importInfo = { tipoDocumento: resultado.tipoDocumento, vencimento: resultado.vencimento, banco: resultado.banco, nomeArquivo: nome };
   $('#import-analise').innerHTML = '';
   $('#btn-analise-import').classList.remove('hidden');
   $('#btn-analise-import').textContent = '✨ Analisar este extrato com IA';
   const visPadrao = lerLS('fc_import_comp') !== 'NAO';
   state.importados = resultado.transacoes.map((t) => ({
-    ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: t.origem || (pdf ? 'pdf' : 'planilha'),
+    ...t, natureza: t.natureza === 'entrada' ? 'entrada' : 'saida', origem: t.origem || origemPadrao,
     compartilhado: visPadrao, compManual: false,
   }));
   marcarTransferenciasInternas(state.importados, resultado.tipoDocumento);
@@ -1154,7 +1160,7 @@ async function importarPdf(file) {
   let venc = resultado.vencimento || '';
   let palpite = false;
   if (fatura && !venc) {
-    const m = file.name.match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+    const m = nome.match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
     if (m) venc = `${m[1]}-${m[2]}-${m[3]}`;
     else if (state.importados.length) {
       venc = `${deslocarMes(state.importados.map((t) => t.data).sort().pop().slice(0, 7), 1)}-10`;
@@ -1173,7 +1179,7 @@ async function importarPdf(file) {
     return;
   }
   const qtd = (n) => state.importados.filter((t) => t.natureza === n).length;
-  status.textContent = `✅ ${qtd('saida')} gastos e ${qtd('entrada')} entradas encontrados${resultado.banco ? ` · ${resultado.banco}` : ''}${resultado.metodo === 'local' ? ' · leitura local, confira os tipos' : ''}.`;
+  status.textContent = `✅ ${qtd('saida')} gastos e ${qtd('entrada')} entradas encontrados${resultado.banco ? ` · ${resultado.banco}` : ''}${resultado.metodo === 'local' ? ' · leitura local, confira os tipos' : resultado.metodo === 'openfinance' ? ' · via Open Finance' : ''}.`;
   renderImportados();
 }
 
@@ -1314,6 +1320,11 @@ async function salvarImportados() {
     $('#import-status').textContent = '';
     $('#input-pdf').value = '';
     mudarMes(mesesImp[mesesImp.length - 1]);
+    if (state.of?.atual !== undefined && state.of.documentos?.[state.of.atual]) {
+      state.of.documentos[state.of.atual].revisado = true;
+      state.of.atual = undefined;
+      if (state.of.documentos.some((d) => !d.revisado)) { irPara('importar'); return; } // ainda há documentos para revisar
+    }
     irPara('inicio');
   } catch (e) {
     // Falhou no meio: desfaz o que já foi gravado desta importação para não ficar pela metade
@@ -1321,6 +1332,140 @@ async function salvarImportados() {
     state.historico = null;
     toast(`Não foi possível salvar: ${e.message}${importacaoId ? ' (nada foi gravado)' : ''}`);
   } finally { btn.disabled = false; carregando(false); }
+}
+
+// ---------- Open Finance (Meu Pluggy) ----------
+// Categorias da Pluggy (em inglês) → tipos do app. Usadas quando a descrição não basta para classificar.
+const CATEGORIA_PLUGGY = [
+  [INTERNA, /same (person|ownership)|own account|mesma titularidade|credit card payment|bill payment/i],
+  ['iFood', /food delivery|delivery/i], ['Mercado', /groceries|supermarket/i], ['Farmácia', /pharmac|drugstore/i],
+  ['Padaria', /bakery/i], ['Restaurante', /restaurant|eating out|bars?\b|coffee/i], ['Combustível', /gas station|fuel/i],
+  ['Transporte', /taxi|ride|transport|parking|toll|mobility/i],
+  ['Contas da casa', /electricity|water|utilit|internet|telecom|phone|rent|housing|condominium|gas\b/i],
+  ['Saúde', /health|hospital|doctor|dentist|clinic|gym|fitness|wellness/i], ['Educação', /education|school|course|university|book/i],
+  ['Impostos e taxas', /tax|government/i], ['Seguros', /insurance/i], ['Tarifas e juros', /bank fees|fee|interest|iof|late payment/i],
+  ['Assinaturas', /subscription|streaming|digital services|software/i], ['Lazer', /travel|leisure|entertainment|hotel|airline|ticket|tourism/i],
+  ['Compras', /shopping|clothing|electronics|online|department|pet|home|furniture/i], ['Transferências', /transfer|pix|ted|doc/i],
+];
+const CATEGORIA_PLUGGY_ENTRADA = [
+  [INTERNA, /same (person|ownership)|own account|mesma titularidade/i], ['Salário', /salary|payroll|wage/i],
+  ['Rendimentos', /interest|investment|dividend|yield|income/i], ['Pix recebido', /pix/i], ['Depósito', /deposit/i],
+  ['Transferência', /transfer|ted|doc/i],
+];
+
+function tipoOpenFinance(t) {
+  if (t.natureza === 'saida' && RE_PAG_FATURA.test(t.descricao)) return INTERNA;
+  const porDescricao = categorizar(t.descricao, t.natureza);
+  const regras = t.natureza === 'entrada' ? CATEGORIA_PLUGGY_ENTRADA : CATEGORIA_PLUGGY;
+  const porBanco = t.categoriaBanco ? (regras.find(([, re]) => re.test(t.categoriaBanco)) || [])[0] : null;
+  if (porBanco === INTERNA) return INTERNA;
+  const generico = ['Outros', 'Outras entradas', 'Transferências', 'Transferência', 'Pix recebido'].includes(porDescricao);
+  return generico && porBanco ? porBanco : porDescricao;
+}
+
+async function hashTexto(t) {
+  try {
+    const dig = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+    return [...new Uint8Array(dig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return ''; }
+}
+
+const hojeMenos = (dias) => {
+  const d = new Date(Date.now() - dias * 864e5);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
+
+async function renderOpenFinance() {
+  const box = $('#of-conteudo');
+  let r;
+  try { r = await api('/api/openfinance'); } catch (e) { box.innerHTML = `<p class="erro">${esc(e.message)}</p>`; return; }
+  state.of = { ...(state.of || {}), ...r };
+  if (!r.configurado) {
+    box.innerHTML = `<p class="sub" style="margin:0">Puxe extratos e faturas direto dos bancos, de graça, pelo <b>Meu Pluggy</b> (cada um com a própria conta):</p>
+      <ol class="of-passos">
+        <li>Crie sua conta em <a href="https://meu.pluggy.ai" target="_blank" rel="noopener">meu.pluggy.ai</a> e conecte seus bancos (autorização no app do banco, uma vez).</li>
+        <li>No <a href="https://dashboard.pluggy.ai" target="_blank" rel="noopener">Dashboard da Pluggy</a>, abra a aplicação demo e conecte o conector <b>Meu Pluggy</b>. Anote o <b>id de cada item</b> e o <b>Client ID / Client Secret</b>.</li>
+        <li>Na Vercel, acrescente suas credenciais em <code>PLUGGY_CREDENCIAIS</code> (formato <code>seu-email:clientId:clientSecret</code>; a do outro separada por vírgula) e faça Redeploy.</li>
+        <li>Volte aqui e adicione os ids dos itens.</li>
+      </ol>`;
+    return;
+  }
+  const conexoes = r.conexoes || [];
+  box.innerHTML = `${conexoes.length ? conexoes.map((c) => `<div class="of-conexao" data-of="${esc(c.id)}">
+      <div class="of-info"><b>🏦 ${esc(c.apelido || c.banco)}</b>
+        <small class="${c.status === 'UPDATED' ? '' : 'erro'}" style="margin:0">${esc(c.statusTexto || c.status || '')}${c.atualizadoEm ? ` · dados de ${dataHora(c.atualizadoEm)}` : ''}</small>
+        <small>${c.ultimaSincronizacao ? `Última sincronização no app: ${dataHora(c.ultimaSincronizacao)}` : 'Ainda não sincronizado'}${c.consentimentoAte ? ` · consentimento até ${dataBR(c.consentimentoAte)}` : ''}</small></div>
+      <div class="of-acoes">
+        <button type="button" class="btn primario" data-of-sync="${esc(c.id)}">↻ Sincronizar</button>
+        <button type="button" class="btn-mini" data-of-del="${esc(c.id)}" title="Remover conexão" aria-label="Remover conexão">✕</button>
+      </div></div>`).join('') : '<p class="sub" style="margin:0 0 8px">Nenhuma conexão ainda. Adicione o id de cada item do Meu Pluggy (um por banco).</p>'}
+    <div class="of-periodo">
+      <label>De <input type="date" id="of-de" value="${esc(state.of.de || hojeMenos(31))}"></label>
+      <label>Até <input type="date" id="of-ate" value="${esc(state.of.ate || hoje())}"></label>
+    </div>
+    <details class="of-add"><summary>＋ Adicionar conexão</summary>
+      <label>Id do item (Dashboard da Pluggy) <input id="of-item" placeholder="1a2b3c4d-…" autocomplete="off"></label>
+      <label>Apelido (opcional) <input id="of-apelido" maxlength="40" placeholder="Ex.: Santander"></label>
+      <button type="button" class="btn largo" id="of-adicionar">Adicionar</button>
+    </details>
+    <div id="of-docs"></div>`;
+  $$('[data-of-sync]', box).forEach((b) => b.addEventListener('click', () => sincronizarOpenFinance(b.dataset.ofSync)));
+  $$('[data-of-del]', box).forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Remover esta conexão do app? (Nada muda no Meu Pluggy nem nos lançamentos já salvos.)')) return;
+    try { await api(`/api/openfinance?id=${encodeURIComponent(b.dataset.ofDel)}`, { method: 'DELETE' }); renderOpenFinance(); } catch (e) { toast(e.message); }
+  }));
+  $('#of-adicionar').addEventListener('click', async () => {
+    try {
+      carregando(true);
+      const { conexao } = await api('/api/openfinance', { method: 'POST', body: { acao: 'adicionar', itemId: $('#of-item').value.trim(), apelido: $('#of-apelido').value.trim() } });
+      toast(`Conexão ${conexao.apelido || conexao.banco} adicionada 🏦`);
+      renderOpenFinance();
+    } catch (e) { toast(e.message); } finally { carregando(false); }
+  });
+  ['of-de', 'of-ate'].forEach((id) => $(`#${id}`).addEventListener('change', (e) => { state.of[id === 'of-de' ? 'de' : 'ate'] = e.target.value; }));
+  if (state.of.documentos) renderDocumentosOF();
+}
+
+async function sincronizarOpenFinance(conexaoId) {
+  const de = $('#of-de').value;
+  const ate = $('#of-ate').value;
+  carregando(true);
+  $('#import-status').textContent = '🏦 Buscando extratos e faturas no Open Finance…';
+  try {
+    const r = await api('/api/openfinance', { method: 'POST', body: { acao: 'sincronizar', conexaoId, de, ate } });
+    state.of = { ...state.of, de, ate, documentos: r.documentos.map((d) => ({ ...d, revisado: false })), banco: r.banco };
+    $('#import-status').textContent = r.documentos.length
+      ? `✅ ${r.banco}: ${r.documentos.length} documento${r.documentos.length === 1 ? '' : 's'} encontrado${r.documentos.length === 1 ? '' : 's'} — revise um por vez abaixo.`
+      : `Nenhum lançamento novo em ${r.banco} no período.`;
+    renderOpenFinance(); // atualiza a data da última sincronização (os documentos ficam guardados)
+  } catch (e) {
+    $('#import-status').textContent = `❌ ${e.message}`;
+  } finally { carregando(false); }
+}
+
+function renderDocumentosOF() {
+  const docs = state.of?.documentos || [];
+  const el = $('#of-docs');
+  if (!el) return;
+  el.innerHTML = docs.length ? `<h4 class="of-titulo">Encontrados — toque para revisar e salvar</h4>${docs.map((d, i) => `
+    <button type="button" class="of-doc ${d.revisado ? 'feito' : ''}" data-of-doc="${i}">
+      <span>${d.tipoDocumento === 'fatura_cartao' ? '💳' : '🏦'} ${esc(d.titulo)}</span>
+      <small>${d.transacoes.length} lançamento${d.transacoes.length === 1 ? '' : 's'}${d.totalFatura ? ` · total da fatura ${fmt(d.totalFatura)}` : ''}${d.revisado ? ' · ✔ salvo' : ''}</small>
+    </button>`).join('')}` : '';
+  $$('[data-of-doc]', el).forEach((b) => b.addEventListener('click', () => revisarDocumentoOF(Number(b.dataset.ofDoc))));
+}
+
+async function revisarDocumentoOF(i) {
+  const d = state.of.documentos[i];
+  state.of.atual = i;
+  state.importArquivo = { nome: `Open Finance · ${d.titulo}`, hash: await hashTexto(d.chave) };
+  const anteriores = (await carregarHistorico().catch(() => [])).filter((h) => h.hash && h.hash === state.importArquivo.hash);
+  avisoArquivoRepetido(anteriores);
+  carregando(true);
+  const transacoes = d.transacoes.map((t) => ({ ...t, tipo: tipoOpenFinance(t) }));
+  await prepararRevisao({ banco: d.banco, tipoDocumento: d.tipoDocumento, vencimento: d.vencimento, transacoes, metodo: 'openfinance' },
+    { nome: state.importArquivo.nome, origemPadrao: 'openfinance' });
+  $('#import-revisao').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ----- Histórico de importações -----

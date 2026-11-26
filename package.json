@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
-    "google-auth-library": "^11.3.4"
+    "google-auth-library": "^11.3.4",
+    "pluggy-sdk": "^0.97.0"
   }
 }

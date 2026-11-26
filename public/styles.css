@@ -262,4 +262,22 @@ dialog input[name=valor] { font-size: 1.5rem; font-weight: 600; }
 .detalhes-ia { margin: 4px 0 10px; font-size: .78rem; color: var(--muted); }
 .detalhes-ia summary { cursor: pointer; padding: 4px 0; }
 .detalhes-ia ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+/* Open Finance */
+.of-conexao { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--border); }
+.of-conexao:first-child { border-top: 0; padding-top: 0; }
+.of-info { display: grid; gap: 2px; min-width: 0; }
+.of-info small { color: var(--muted); font-size: .78rem; }
+.of-acoes { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.of-acoes .btn { min-height: 38px; padding: 8px 12px; font-size: .85rem; }
+.of-periodo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.of-periodo label, .of-add label { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); }
+.of-periodo input, .of-add input { padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); min-height: 40px; }
+.of-add { margin: 6px 0; }
+.of-add summary { cursor: pointer; color: var(--primary); font-weight: 600; padding: 6px 0; font-size: .9rem; }
+.of-add[open] { display: grid; gap: 8px; }
+.of-passos { margin: 8px 0 0; padding-left: 20px; font-size: .88rem; display: grid; gap: 6px; }
+.of-titulo { margin: 12px 0 6px; font-size: .85rem; color: var(--muted); }
+.of-doc { display: grid; gap: 2px; width: 100%; text-align: left; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; }
+.of-doc small { color: var(--muted); }
+.of-doc.feito { opacity: .6; }
 .inp-mes { position: fixed; left: 50%; top: 120px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
